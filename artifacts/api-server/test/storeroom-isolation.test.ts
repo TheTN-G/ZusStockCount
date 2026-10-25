@@ -1030,7 +1030,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     `/users/${secondManagerInviteeId}/password-reset`,
     { method: "POST", storeroomId: secondRoomId },
   );
-  assert.equal(managerResetStaff.response.status, 202);
+  assert.equal(managerResetStaff.response.status, 201);
   const managerResetOwner = await api(
     secondStaffId,
     `/users/${secondOwnerId}/password-reset`,
