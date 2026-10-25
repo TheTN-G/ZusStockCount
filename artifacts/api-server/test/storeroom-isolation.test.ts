@@ -1041,10 +1041,16 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
             ({
               productId,
               expectedQuantity,
+              sectionId,
             }: {
               productId: number;
               expectedQuantity: number;
-            }) => ({ productId, countedQuantity: expectedQuantity }),
+              sectionId: number | null;
+            }) => ({
+              productId,
+              sectionId: sectionId ?? undefined,
+              countedQuantity: expectedQuantity,
+            }),
           ),
         },
       },
@@ -1138,7 +1144,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   const lowStockProduct = await api(legacyOwnerId, `/products/${productA.id}`, {
     method: "PATCH",
     storeroomId: legacyRoomId,
-    body: { minStock: 17 },
+    body: { minStock: 21 },
   });
   assert.equal(lowStockProduct.response.status, 200, JSON.stringify(lowStockProduct.data));
   const adequatelyStockedProduct = await api(
@@ -1319,10 +1325,10 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       pendingApprovals: dashboardB.data.pendingApprovals,
     },
     {
-      productCount: 1,
+      productCount: 2,
       lowStockCount: 0,
       expiringSoonCount: 0,
-      pendingApprovals: 1,
+      pendingApprovals: 2,
     },
   );
   assert.equal(dashboardA.data.recentMovements.length, 6);
@@ -1482,6 +1488,26 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   fixtureTransferIds.push(intraTransfer.data.id);
   assert.equal(intraTransfer.data.sourceTotalBefore, 10);
   assert.equal(intraTransfer.data.sourceTotalAfter, 10);
+  const listedTransfers = await api(secondOwnerId, "/stock-transfers", {
+    storeroomId: secondRoomId,
+  });
+  assert.equal(listedTransfers.response.status, 200, JSON.stringify(listedTransfers.data));
+  assert.ok(
+    listedTransfers.data.some(
+      ({
+        id,
+        sourceOutletId,
+        destinationOutletId,
+      }: {
+        id: number;
+        sourceOutletId: number;
+        destinationOutletId: number;
+      }) =>
+        id === intraTransfer.data.id &&
+        sourceOutletId === secondRoomId &&
+        destinationOutletId === secondRoomId,
+    ),
+  );
   const intraRetry = await api(secondOwnerId, "/stock-transfers", {
     method: "POST",
     storeroomId: secondRoomId,
@@ -1535,7 +1561,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     body: { ...crossPayload, clientKey: crypto.randomUUID() },
   });
   assert.equal(staleTransfer.response.status, 409, JSON.stringify(staleTransfer.data));
-  const staffTransfer = await api(secondStaffId, "/stock-transfers", {
+  const staffTransfer = await api(secondManagerInviteeId, "/stock-transfers", {
     method: "POST",
     storeroomId: secondRoomId,
     body: {},
@@ -1577,7 +1603,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   ));
   assert.ok(destinationMovements.data.some(
     ({ type, otherOutletName, transferReference }: { type: string; otherOutletName?: string; transferReference?: string }) =>
-      type === "transfer_in" && otherOutletName === "Main Outlet" && transferReference === crossTransfer.data.reference,
+      type === "transfer_in" && otherOutletName === "Downtown Outlet" && transferReference === crossTransfer.data.reference,
   ));
 
   const emptyCountSection = await api(secondOwnerId, "/stock-sections", {

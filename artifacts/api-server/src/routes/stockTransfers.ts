@@ -36,6 +36,16 @@ const transferRoles = ["owner", "admin", "supervisor"];
 const epsilon = 0.001;
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+function toStockTransferResponse(
+  transfer: typeof stockTransfersTable.$inferSelect,
+) {
+  return {
+    ...transfer,
+    sourceOutletId: transfer.sourceStoreroomId,
+    destinationOutletId: transfer.destinationStoreroomId,
+  };
+}
+
 function transferHash(input: {
   destinationOutletId: number;
   productId: number;
@@ -245,7 +255,7 @@ router.get("/stock-transfers", async (req, res): Promise<void> => {
     )
     .orderBy(desc(stockTransfersTable.occurredAt), desc(stockTransfersTable.id))
     .limit(query.data.limit ?? 100);
-  res.json(ListStockTransfersResponse.parse(transfers));
+  res.json(ListStockTransfersResponse.parse(transfers.map(toStockTransferResponse)));
 });
 
 router.post(
@@ -526,7 +536,9 @@ router.post(
 
         return saved;
       });
-      res.status(201).json(CreateStockTransferResponse.parse(transfer));
+      res.status(201).json(
+        CreateStockTransferResponse.parse(toStockTransferResponse(transfer)),
+      );
     } catch (error) {
       if (error instanceof ApiError) {
         res.status(error.status).json({ error: error.message });
@@ -544,7 +556,9 @@ router.post(
           .where(eq(stockTransfersTable.clientKey, body.data.clientKey))
           .limit(1);
         if (previous && previous.requestHash === hash) {
-          res.status(201).json(CreateStockTransferResponse.parse(previous));
+          res.status(201).json(
+            CreateStockTransferResponse.parse(toStockTransferResponse(previous)),
+          );
           return;
         }
         res.status(409).json({ error: "A transfer with these details was already recorded." });
