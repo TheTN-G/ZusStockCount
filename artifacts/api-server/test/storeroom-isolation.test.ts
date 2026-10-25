@@ -81,7 +81,18 @@ async function api(
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
-  const data = response.status === 204 ? null : await response.json();
+  let data: any = null;
+  if (response.status !== 204) {
+    const responseBody = await response.text();
+    try {
+      data = JSON.parse(responseBody);
+    } catch {
+      throw new Error(
+        `Expected JSON from ${options.method ?? "GET"} ${path}; received ${response.status} ` +
+          `${response.headers.get("content-type")}: ${responseBody.slice(0, 400)}`,
+      );
+    }
+  }
   return { response, data };
 }
 
