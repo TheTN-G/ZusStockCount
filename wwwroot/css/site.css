@@ -1,0 +1,637 @@
+/* ===== Zus Store Stock theme =====
+   Blue  #1026eb   White #ffffff   Cream #ffe7a1   Brown #452002
+   Extra: green = good/add, red = low/remove/expired */
+:root {
+    --zus-blue: #1026eb;
+    --zus-blue-dark: #0b1bb3;
+    --zus-cream: #ffe7a1;
+    --zus-cream-soft: #fff8e6;
+    --zus-brown: #452002;
+    --zus-white: #ffffff;
+    --zus-ok: #1f8f4e;
+    --zus-ok-dark: #17703c;
+    --zus-danger: #c0392b;
+    --zus-danger-dark: #9c2d21;
+    --zus-warn: #b45309;
+}
+
+body {
+    background: var(--zus-cream-soft);
+    color: var(--zus-brown);
+}
+
+a {
+    color: var(--zus-blue);
+}
+
+    a:hover {
+        color: var(--zus-blue-dark);
+    }
+
+/* ---------- Navbar + logo ---------- */
+.zus-nav {
+    background: var(--zus-white);
+    border-bottom: 3px solid var(--zus-blue);
+}
+
+.brand-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 0;
+}
+
+.brand-logo {
+    display: inline-block;
+    width: 150px;
+    height: 40px;
+    background: url('../images/zus-logo-wide.png') no-repeat left center / contain;
+}
+
+.brand-text {
+    font-weight: 700;
+    font-size: .95rem;
+    color: var(--zus-brown);
+    border-left: 2px solid var(--zus-cream);
+    padding-left: 10px;
+}
+
+.zus-nav .nav-link {
+    color: var(--zus-brown);
+    font-weight: 600;
+}
+
+    .zus-nav .nav-link:hover {
+        color: var(--zus-blue);
+    }
+
+.nav-user {
+    color: var(--zus-brown);
+    font-size: .9rem;
+}
+
+/* ---------- Buttons ---------- */
+.btn-zus {
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--zus-blue);
+    --bs-btn-border-color: var(--zus-blue);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--zus-blue-dark);
+    --bs-btn-hover-border-color: var(--zus-blue-dark);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--zus-blue-dark);
+    --bs-btn-active-border-color: var(--zus-blue-dark);
+    --bs-btn-focus-shadow-rgb: 16, 38, 235;
+}
+
+.btn-outline-zus {
+    --bs-btn-color: var(--zus-blue);
+    --bs-btn-border-color: var(--zus-blue);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--zus-blue);
+    --bs-btn-hover-border-color: var(--zus-blue);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--zus-blue-dark);
+    --bs-btn-active-border-color: var(--zus-blue-dark);
+    --bs-btn-focus-shadow-rgb: 16, 38, 235;
+}
+
+.btn-cream {
+    --bs-btn-color: var(--zus-brown);
+    --bs-btn-bg: var(--zus-cream);
+    --bs-btn-border-color: #f1d27a;
+    --bs-btn-hover-color: var(--zus-brown);
+    --bs-btn-hover-bg: #ffdc75;
+    --bs-btn-hover-border-color: #f1c94f;
+    --bs-btn-active-color: var(--zus-brown);
+    --bs-btn-active-bg: #ffd24d;
+    --bs-btn-active-border-color: #f1c94f;
+    --bs-btn-focus-shadow-rgb: 69, 32, 2;
+}
+
+.btn-ok {
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--zus-ok);
+    --bs-btn-border-color: var(--zus-ok);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--zus-ok-dark);
+    --bs-btn-hover-border-color: var(--zus-ok-dark);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--zus-ok-dark);
+    --bs-btn-active-border-color: var(--zus-ok-dark);
+}
+
+.btn-use {
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--zus-danger);
+    --bs-btn-border-color: var(--zus-danger);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--zus-danger-dark);
+    --bs-btn-hover-border-color: var(--zus-danger-dark);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--zus-danger-dark);
+    --bs-btn-active-border-color: var(--zus-danger-dark);
+}
+
+/* Back button (rounded, with an arrow) */
+.btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .4rem 1rem .4rem .75rem;
+    background: var(--zus-white);
+    color: var(--zus-blue);
+    border: 1.5px solid var(--zus-blue);
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: .9rem;
+    text-decoration: none;
+    box-shadow: 0 1px 3px rgba(16, 38, 235, .15);
+    transition: background .15s, color .15s, transform .15s;
+}
+
+    .btn-back span {
+        font-size: 1.15rem;
+        line-height: 1;
+        transition: transform .15s;
+    }
+
+    .btn-back:hover {
+        background: var(--zus-blue);
+        color: #fff;
+    }
+
+        .btn-back:hover span {
+            transform: translateX(-3px);
+        }
+
+/* ---------- Forms ---------- */
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--zus-blue);
+    box-shadow: 0 0 0 .2rem rgba(16, 38, 235, .2);
+}
+
+.form-check-input:checked {
+    background-color: var(--zus-blue);
+    border-color: var(--zus-blue);
+}
+
+.form-text {
+    color: var(--zus-brown);
+    opacity: .75;
+}
+
+.page-narrow {
+    max-width: 680px;
+    margin: 0 auto;
+}
+
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-top: 1rem;
+}
+
+.bundle-box {
+    background: var(--zus-cream-soft);
+    border: 1px solid var(--zus-cream);
+    border-radius: 10px;
+    padding: .85rem 1rem;
+}
+
+.threshold-group {
+    max-width: 340px;
+}
+
+    .threshold-group .form-select {
+        max-width: 140px;
+    }
+
+.expiry-form {
+    display: flex;
+    gap: .4rem;
+    align-items: center;
+    min-width: 230px;
+}
+
+    .expiry-form .form-control {
+        max-width: 160px;
+    }
+
+/* ---------- NEW: + / - quantity buttons ---------- */
+.qty-stepper {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    max-width: 260px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--zus-white);
+    border: 1px solid #e0d6c3;
+    box-shadow: 0 1px 3px rgba(69, 32, 2, .18);
+}
+
+.qty-btn {
+    flex: 0 0 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    color: #fff;
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+    transition: filter .12s;
+}
+
+.qty-minus {
+    background: var(--zus-danger);
+}
+
+.qty-plus {
+    background: var(--zus-ok);
+}
+
+.qty-btn:hover {
+    filter: brightness(.92);
+}
+
+.qty-btn:active {
+    filter: brightness(.82);
+}
+
+.qty-stepper .qty-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 2.7rem;
+    border: 0;
+    border-radius: 0;
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    box-shadow: none;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+    .qty-stepper .qty-input::-webkit-inner-spin-button,
+    .qty-stepper .qty-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    .qty-stepper .qty-input:focus {
+        box-shadow: inset 0 0 0 2px rgba(16, 38, 235, .35);
+    }
+
+/* Smaller version used inside tables */
+.qty-sm {
+    max-width: 150px;
+}
+
+    .qty-sm .qty-btn {
+        flex-basis: 34px;
+        font-size: 1.2rem;
+    }
+
+    .qty-sm .qty-input {
+        height: 2.1rem;
+        font-size: .95rem;
+    }
+
+.qty-cell {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    white-space: nowrap;
+}
+
+/* ---------- Panels ---------- */
+.panel {
+    background: var(--zus-white);
+    border: 1px solid var(--zus-cream);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 2px 6px rgba(69, 32, 2, .06);
+}
+
+.panel-add {
+    border-top: 4px solid var(--zus-ok);
+}
+
+.panel-use {
+    border-top: 4px solid var(--zus-danger);
+}
+
+.login-card {
+    max-width: 400px;
+    margin: 1.5rem auto;
+}
+
+.login-logo {
+    width: 130px;
+    height: 130px;
+    margin: 0 auto .5rem;
+    background: url('../images/zus-logo-stacked.png') no-repeat center / contain;
+}
+
+details > summary {
+    cursor: pointer;
+    color: var(--zus-blue);
+    font-weight: 600;
+}
+
+/* ---------- Stat boxes ---------- */
+.stat {
+    background: var(--zus-white);
+    border: 1px solid var(--zus-cream);
+    border-left: 5px solid var(--zus-blue);
+    border-radius: 10px;
+    padding: .75rem 1rem;
+    height: 100%;
+}
+
+.stat-n {
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.stat-l {
+    font-size: .85rem;
+    opacity: .8;
+}
+
+.stat-low {
+    border-left-color: var(--zus-danger);
+    background: #fdecea;
+}
+
+.stat-soon {
+    border-left-color: var(--zus-warn);
+    background: #fff3cd;
+}
+
+.stat-link {
+    display: block;
+    height: 100%;
+    color: inherit;
+    text-decoration: none;
+}
+
+    .stat-link:hover {
+        color: inherit;
+    }
+
+    .stat-link .stat {
+        transition: transform .12s, box-shadow .12s;
+    }
+
+    .stat-link:hover .stat {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(69, 32, 2, .15);
+    }
+
+.stat-on {
+    outline: 2px solid var(--zus-blue);
+    outline-offset: 1px;
+}
+
+/* ---------- Tables ---------- */
+.group-head {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 1.5rem 0 .5rem;
+    padding-left: .6rem;
+    border-left: 5px solid var(--zus-blue);
+}
+
+.table-zus {
+    --bs-table-bg: var(--zus-white);
+    --bs-table-color: var(--zus-brown);
+    --bs-table-hover-bg: var(--zus-cream-soft);
+    --bs-table-hover-color: var(--zus-brown);
+    --bs-table-border-color: #f3e3b0;
+}
+
+    .table-zus > thead {
+        --bs-table-bg: var(--zus-blue);
+        --bs-table-color: #fff;
+        color: #fff;
+    }
+
+        .table-zus > thead th {
+            font-weight: 600;
+            font-size: .85rem;
+            white-space: nowrap;
+            border-bottom: 0;
+        }
+
+    .table-zus tr.row-low {
+        --bs-table-bg: #fdecea;
+    }
+
+.item-desc {
+    opacity: .75;
+}
+
+/* ---------- Chips and flags ---------- */
+.chip {
+    display: inline-block;
+    padding: .15rem .55rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 600;
+}
+
+.chip-ambient {
+    background: var(--zus-cream);
+    color: var(--zus-brown);
+}
+
+.chip-chill {
+    background: #dbe7ff;
+    color: #1b3fa8;
+}
+
+.chip-frozen {
+    background: #d3f1f7;
+    color: #0b5d6b;
+}
+
+.chip-grp {
+    background: #f1ece4;
+    color: var(--zus-brown);
+}
+
+.chip-off {
+    background: #e5e5e5;
+    color: #555;
+}
+
+.low-flag {
+    display: inline-block;
+    background: var(--zus-danger);
+    color: #fff;
+    font-size: .7rem;
+    font-weight: 700;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+}
+
+/* Order status chips */
+.chip-status-pending {
+    background: #fff3cd;
+    color: #8a5a00;
+}
+
+.chip-status-approved {
+    background: #d9f2e3;
+    color: #17703c;
+}
+
+.chip-status-rejected {
+    background: #fdecea;
+    color: #9c2d21;
+}
+
+.chip-status-ordered {
+    background: #dbe7ff;
+    color: #1b3fa8;
+}
+
+.chip-status-partial {
+    background: #ffe2c2;
+    color: #8a4400;
+}
+
+.chip-status-received {
+    background: #1f8f4e;
+    color: #fff;
+}
+
+/* ---------- NEW: expiry colours ----------
+   exp-over = already expired: red with a warning mark
+   exp-soon = within the reminder days: red only */
+.exp-over,
+.exp-soon {
+    color: var(--zus-danger);
+    font-weight: 700;
+}
+
+    .exp-over::before {
+        content: "\26A0\00a0";
+    }
+
+/* ---------- Mobile view ---------- */
+@media (max-width: 576px) {
+    .brand-logo {
+        width: 110px;
+        height: 32px;
+    }
+
+    .brand-text {
+        display: none;
+    }
+
+    main.container {
+        padding-left: .75rem;
+        padding-right: .75rem;
+    }
+
+    .panel {
+        padding: .9rem;
+    }
+
+    .stat {
+        padding: .55rem .65rem;
+        border-left-width: 4px;
+    }
+
+    .stat-n {
+        font-size: 1.3rem;
+    }
+
+    .stat-l {
+        font-size: .72rem;
+    }
+
+    .table-zus {
+        font-size: .9rem;
+    }
+
+    .form-actions .btn {
+        flex: 1 1 100%;
+    }
+
+    .threshold-group {
+        max-width: 100%;
+    }
+
+    .expiry-form {
+        min-width: 200px;
+    }
+}
+
+/* ---------- Added: item search box used on New order / New product delivery ---------- */
+.pick-search {
+    position: relative;
+}
+
+.pick-results {
+    position: absolute;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: var(--zus-white);
+    border: 1px solid var(--zus-cream);
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(69, 32, 2, .18);
+    max-height: 320px;
+    overflow: auto;
+    display: none;
+}
+
+.pick-hit {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+    text-align: left;
+    background: var(--zus-white);
+    border: 0;
+    border-bottom: 1px solid #f3e3b0;
+    padding: .55rem .85rem;
+    color: var(--zus-brown);
+}
+
+    .pick-hit:hover,
+    .pick-hit:focus {
+        background: var(--zus-cream-soft);
+        outline: none;
+    }
+
+.pick-none {
+    padding: .7rem .9rem;
+    opacity: .75;
+}
+
+.row-flash td {
+    background: var(--zus-cream) !important;
+}
+
+/* ---------- Added: expired and almost-expired text is always red ----------
+   (Bootstrap's table cell colour was overriding the colour set on a <td>) */
+.exp-over,
+.exp-soon {
+    color: var(--zus-danger) !important;
+    font-weight: 700;
+}

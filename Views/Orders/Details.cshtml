@@ -1,0 +1,169 @@
+@model StoreOrder
+@{
+    ViewData["Title"] = Model.OrderNumber;
+    bool canApprove = User.IsInRole("Admin") || User.IsInRole("Supervisor");
+    bool awaitingDecision = Model.Status == OrderStatus.Pending;
+    bool canReceive = Model.Status == OrderStatus.Ordered || Model.Status == OrderStatus.PartlyReceived;
+    var lines = Model.OrderLines.OrderBy(l => l.Product?.Category).ThenBy(l => l.Product?.Name).ToList();
+}
+
+<a asp-action="Index" class="btn-back"><span>&larr;</span> Back to orders</a>
+
+<div class="my-3">
+    <h1 class="h4 mb-1">
+        @Model.OrderNumber
+        <span class="chip @OrderStatus.Css(Model.Status)">@Model.Status</span>
+        @if (Model.Source == "HQ Delivery")
+        {
+            <span class="chip chip-grp">Product delivery</span>
+        }
+    </h1>
+    <div class="small">Created by @Model.CreatedBy on @Model.OrderDate.ToString("dd MMM yyyy HH:mm")</div>
+    @if (!string.IsNullOrWhiteSpace(Model.Note))
+    {
+        <div class="small">Note: @Model.Note</div>
+    }
+    @if (Model.DecidedBy != null)
+    {
+        <div class="small">@(Model.Status == OrderStatus.Rejected ? "Rejected" : "Approved") by @Model.DecidedBy on @Model.DecidedAt?.ToString("dd MMM yyyy HH:mm")@(string.IsNullOrWhiteSpace(Model.DecisionNote) ? "" : ". Note: " + Model.DecisionNote)</div>
+    }
+    @if (Model.OrderedBy != null && Model.Source != "HQ Delivery")
+    {
+        <div class="small">Ordered by @Model.OrderedBy on @Model.OrderedAt?.ToString("dd MMM yyyy HH:mm")</div>
+    }
+    @if (Model.ReceivedBy != null)
+    {
+        <div class="small">Received by @Model.ReceivedBy on @Model.ReceivedDate?.ToString("dd MMM yyyy HH:mm")</div>
+    }
+</div>
+
+@if (canApprove && awaitingDecision)
+{
+    <form asp-action="Decide" asp-route-id="@Model.Id" method="post">
+        <p class="small">Check the quantities. Change them if needed, or set a line to 0 to remove it.</p>
+        <div class="table-responsive">
+            <table class="table table-zus">
+                <thead><tr><th>Item</th><th>Bundles</th><th>Loose</th><th class="text-end">Total (loose)</th></tr></thead>
+                <tbody>
+                    @for (int i = 0; i < lines.Count; i++)
+                    {
+                        var l = lines[i];
+                        <tr>
+                            <td>
+                                @l.Product?.Name
+                                <div class="small">@l.Product?.BundleSizeText</div>
+                                <input type="hidden" name="lines[@i].LineId" value="@l.Id" />
+                            </td>
+                            <td>
+                                @if (l.UnitsPerBundle > 1)
+                                {
+                                    @await Html.PartialAsync("_QtyStepper", new QtyField($"lines[{i}].Bundles", l.RequestedBundleQty, l.Product?.BundleUnit))
+                                }
+                                else
+                                {
+                                    <input type="hidden" name="lines[@i].Bundles" value="0" />
+                                    <span class="small">-</span>
+                                }
+                            </td>
+                            <td>
+                                @await Html.PartialAsync("_QtyStepper", new QtyField($"lines[{i}].Loose", l.RequestedLooseQty, l.Product?.LooseUnit))
+                            </td>
+                            <td class="text-end">@l.RequestedTotal</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="mb-3" style="max-width:520px">
+            <label class="form-label">Note (needed if you reject)</label>
+            <input name="decisionNote" maxlength="300" class="form-control" />
+        </div>
+        <button name="decision" value="approve" class="btn btn-ok">Approve order</button>
+        <button name="decision" value="reject" class="btn btn-use ms-1">Reject order</button>
+    </form>
+}
+else
+{
+    @if (awaitingDecision)
+    {
+        <div class="panel mb-3">Waiting for a supervisor or admin to approve this order.</div>
+    }
+    <div class="table-responsive">
+        <table class="table table-zus">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Ordered</th>
+                    <th class="text-end">Qty per bundle</th>
+                    <th class="text-end">Total ordered (loose)</th>
+                    <th>Received</th>
+                    <th>Status</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var l in lines)
+                {
+                    bool gotStock = l.ReceiveStatus == ReceiveStatus.Received || l.ReceiveStatus == ReceiveStatus.AddedOnArrival;
+                    <tr>
+                        <td>@l.Product?.Name</td>
+                        <td>@(l.RequestedTotal > 0 ? l.Product?.Pack(l.RequestedTotal) : "-")</td>
+                        <td class="text-end">@l.UnitsPerBundle</td>
+                        <td class="text-end">@l.RequestedTotal</td>
+                        <td>
+                            @if (gotStock)
+                            {
+                                @l.Product?.Pack(l.ReceivedTotal)
+                                @if (l.ReceivedExpiry != null)
+                                {
+                                    <div class="small @Product.ExpiryCss(l.ReceivedExpiry, DateTime.Today)">Expiry @l.ReceivedExpiry.Value.ToString("dd MMM yyyy")</div>
+                                }
+                            }
+                            else
+                            {
+                                <text>-</text>
+                            }
+                        </td>
+                        <td>
+                            @if (Model.Status == OrderStatus.Rejected || Model.Status == OrderStatus.Approved || Model.Status == OrderStatus.Pending)
+                            {
+                                <text>-</text>
+                            }
+                            else
+                            {
+                                <span class="chip @ReceiveStatusUi.Css(l.ReceiveStatus)">@l.ReceiveStatus</span>
+                            }
+                        </td>
+                        <td>@l.RejectNote</td>
+                    </tr>
+                }
+                @if (!lines.Any())
+                {
+                    <tr><td colspan="7">No items yet.@(canReceive ? " Use Receive delivery to add what arrived." : "")</td></tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th>Total</th>
+                    <th></th>
+                    <th></th>
+                    <th class="text-end">@Model.OrderLines.Sum(l => l.RequestedTotal)</th>
+                    <th colspan="3"></th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+}
+
+<div class="d-flex flex-wrap gap-2 mt-3">
+    @if (canApprove && Model.Status == OrderStatus.Approved)
+    {
+        <form asp-action="MarkOrdered" asp-route-id="@Model.Id" method="post">
+            <button class="btn btn-zus">Mark as ordered</button>
+        </form>
+    }
+    @if (canReceive)
+    {
+        <a asp-action="Receive" asp-route-id="@Model.Id" class="btn btn-ok">Receive delivery</a>
+    }
+</div>

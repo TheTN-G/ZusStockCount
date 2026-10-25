@@ -1,0 +1,30 @@
+@{
+    ViewData["Title"] = "Log in";
+    bool signupOpen = ViewBag.SignupOpen == true;
+}
+<div class="panel login-card">
+    <div class="login-logo" role="img" aria-label="Zus Coffee"></div>
+    <h1 class="h4 text-center mb-1">Store Stock</h1>
+    <p class="text-center small mb-3">Log in to check stock and order.</p>
+
+    <form asp-action="Login" method="post">
+        <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+        <div class="mb-3">
+            <label class="form-label">Username</label>
+            <input name="username" class="form-control" autocomplete="username" autofocus required />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input name="password" type="password" class="form-control" autocomplete="current-password" required />
+        </div>
+        <button class="btn btn-zus w-100">Log in</button>
+    </form>
+
+    @if (signupOpen)
+    {
+        <hr />
+        <div class="text-center small">
+            New staff or supervisor? <a asp-action="Signup">Create an account</a>
+        </div>
+    }
+</div>

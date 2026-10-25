@@ -1,0 +1,158 @@
+@model List<Product>
+@{
+    ViewData["Title"] = "Stock";
+    var today = DateTime.Today;
+    var selCategory = (ProductCategory?)ViewBag.Category;
+    var selStorage = (StorageType?)ViewBag.Storage;
+    string show = (string?)ViewBag.Show ?? "";
+    string showLabel = show switch
+    {
+        "active" => "Active items",
+        "low" => "Low stock (at or below threshold)",
+        "expiring" => $"Expired or expiring within {Product.ExpiryReminderDays} days",
+        _ => ""
+    };
+}
+
+<div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+    <h1 class="h4 m-0">Store stock</h1>
+    <div class="d-flex flex-wrap gap-2">
+        <a asp-action="Create" class="btn btn-zus">Add product</a>
+        <a asp-action="DownloadSheet" class="btn btn-outline-zus">Download Excel</a>
+        <a asp-controller="Orders" asp-action="Create" class="btn btn-cream">Order low stock</a>
+    </div>
+</div>
+
+<div class="row g-2 g-md-3 mb-3">
+    <div class="col-4">
+        <a asp-action="Index" asp-route-show="active" class="stat-link">
+            <div class="stat @(show == "active" ? "stat-on" : "")">
+                <div class="stat-n">@ViewBag.Total</div>
+                <div class="stat-l">Active items</div>
+            </div>
+        </a>
+    </div>
+    <div class="col-4">
+        <a asp-action="Index" asp-route-show="low" class="stat-link">
+            <div class="stat @((int)ViewBag.Low > 0 ? "stat-low" : "") @(show == "low" ? "stat-on" : "")">
+                <div class="stat-n">@ViewBag.Low</div>
+                <div class="stat-l">At or below threshold</div>
+            </div>
+        </a>
+    </div>
+    <div class="col-4">
+        <a asp-action="Index" asp-route-show="expiring" class="stat-link">
+            <div class="stat @((int)ViewBag.Soon > 0 ? "stat-soon" : "") @(show == "expiring" ? "stat-on" : "")">
+                <div class="stat-n">@ViewBag.Soon</div>
+                <div class="stat-l">Expired or within @Product.ExpiryReminderDays days</div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<form method="get" class="row g-2 mb-2">
+    <div class="col-12 col-md-3">
+        <input name="q" value="@ViewBag.Q" class="form-control" placeholder="Search item" />
+    </div>
+    <div class="col-6 col-md-2">
+        <select name="category" class="form-select">
+            <option value="">All categories</option>
+            @foreach (var c in Enum.GetValues<ProductCategory>())
+            {
+                <option value="@c" selected="@(selCategory == c)">@c</option>
+            }
+        </select>
+    </div>
+    <div class="col-6 col-md-2">
+        <select name="storage" class="form-select">
+            <option value="">All storage</option>
+            @foreach (var s in Enum.GetValues<StorageType>())
+            {
+                <option value="@s" selected="@(selStorage == s)">@s</option>
+            }
+        </select>
+    </div>
+    <div class="col-6 col-md-3">
+        <select name="show" class="form-select">
+            <option value="" selected="@(show == "")">Show: all items</option>
+            <option value="active" selected="@(show == "active")">Show: active items</option>
+            <option value="low" selected="@(show == "low")">Show: low stock</option>
+            <option value="expiring" selected="@(show == "expiring")">Show: expiring soon</option>
+        </select>
+    </div>
+    <div class="col-6 col-md-2">
+        <button class="btn btn-zus w-100">Filter</button>
+    </div>
+</form>
+
+@if (show != "")
+{
+    <div class="small mb-2">
+        Showing: <strong>@showLabel</strong>
+        <a asp-action="Index" class="ms-2">Clear filter</a>
+    </div>
+}
+
+<details class="mb-2">
+    <summary>Upload filled stock-take Excel</summary>
+    <form asp-action="UploadSheet" method="post" enctype="multipart/form-data" class="panel mt-2 d-flex flex-wrap gap-2 align-items-center">
+        <input type="file" name="file" accept=".xlsx" class="form-control" style="max-width:360px" required />
+        <button class="btn btn-zus">Upload and update stock</button>
+        <span class="small">Counts replace the system stock for each filled row. Blank rows are skipped.</span>
+    </form>
+</details>
+
+@if (!Model.Any())
+{
+    <div class="panel mt-3">No items to show. Clear the filters, or use Add product to create your first item.</div>
+}
+
+@foreach (var g in Model.GroupBy(p => p.Category))
+{
+    <h2 class="group-head">@g.Key</h2>
+    <div class="table-responsive">
+        <table class="table table-zus table-hover">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Storage</th>
+                    <th>Bundle size</th>
+                    <th>In stock</th>
+                    <th class="text-end">Total (loose)</th>
+                    <th class="text-end">Threshold</th>
+                    <th>Next expiry</th>
+                    <th>Last checked</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in g)
+                {
+                    <tr class="@(p.IsLow ? "row-low" : "")">
+                        <td>
+                            <a asp-action="Item" asp-route-id="@p.Id" class="fw-semibold">@p.Name</a>
+                            @if (!p.IsActive)
+                            {
+                                <span class="chip chip-off ms-1">Not ordering</span>
+                            }
+                            @if (p.IsLow)
+                            {
+                                <span class="low-flag ms-1">Low</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(p.Description))
+                            {
+                                <div class="small item-desc">@p.Description</div>
+                            }
+                        </td>
+                        <td><span class="chip chip-@p.StorageZone.ToString().ToLower()">@p.StorageZone</span></td>
+                        <td class="text-nowrap">@p.BundleSizeText</td>
+                        <td class="text-nowrap">@p.Pack(p.TotalLooseQty)</td>
+                        <td class="text-end">@p.TotalLooseQty</td>
+                        <td class="text-end">@p.ThresholdLooseQty</td>
+                        <td class="text-nowrap @p.ExpiryClass(today)">@(p.NextExpiry?.ToString("dd MMM yyyy") ?? "-")</td>
+                        <td class="text-nowrap">@p.LastCheckedText(today)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

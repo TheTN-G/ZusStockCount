@@ -1,0 +1,54 @@
+@model List<StockCheck>
+@{
+    ViewData["Title"] = "Stock checks";
+}
+
+<div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h4 mb-1">Stock checks</h1>
+        <p class="small mb-0">Count physical stock and keep a record of every variance.</p>
+    </div>
+    <a asp-action="Create" asp-route-scope="All" class="btn btn-zus">Count all active stock</a>
+</div>
+
+<div class="panel mb-4">
+    <h2 class="h6">Start a focused count</h2>
+    <div class="d-flex flex-wrap gap-2">
+        @foreach (var category in Enum.GetValues<ProductCategory>())
+        {
+            <a asp-action="Create" asp-route-scope="Category" asp-route-scopeName="@category" class="btn btn-sm btn-outline-zus">
+                Count @category
+            </a>
+        }
+    </div>
+</div>
+
+<h2 class="h6">Recent history</h2>
+<div class="table-responsive">
+    <table class="table table-zus table-hover">
+        <thead>
+            <tr><th>Date</th><th>Scope</th><th>Counted by</th><th class="text-end">Items</th><th class="text-end">Variances</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var check in Model)
+            {
+                var scopeLabel = check.Scope == "Item"
+                    ? check.Lines.FirstOrDefault()?.Product?.Name ?? "One item"
+                    : check.Scope == "Category" ? check.ScopeName ?? "Category" : "All active stock";
+                <tr>
+                    <td class="text-nowrap">@check.CheckedAt.ToString("dd MMM yyyy, HH:mm")</td>
+                    <td>@scopeLabel</td>
+                    <td>@check.CheckedBy</td>
+                    <td class="text-end">@check.Lines.Count</td>
+                    <td class="text-end">@check.Lines.Count(line => line.Difference != 0)</td>
+                    <td class="text-end"><a asp-action="Details" asp-route-id="@check.Id" class="btn btn-sm btn-outline-zus">Open</a></td>
+                </tr>
+            }
+            @if (!Model.Any())
+            {
+                <tr><td colspan="6">No stock checks yet. Start with a full-store count or choose a category above.</td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+

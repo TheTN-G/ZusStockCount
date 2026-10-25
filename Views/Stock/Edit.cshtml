@@ -1,0 +1,13 @@
+@model Product
+@{
+    ViewData["Title"] = "Edit " + Model.Name;
+}
+
+<a asp-action="Item" asp-route-id="@Model.Id">Back to @Model.Name</a>
+<h1 class="h4 my-2">Edit product</h1>
+
+<form asp-action="Edit" asp-route-id="@Model.Id" method="post" class="panel" style="max-width:680px">
+    <partial name="_ProductForm" model="Model" />
+    <button class="btn btn-zus">Save changes</button>
+    <a asp-action="Item" asp-route-id="@Model.Id" class="btn btn-cream ms-1">Cancel</a>
+</form>

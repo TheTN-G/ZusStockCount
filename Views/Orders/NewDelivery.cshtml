@@ -1,0 +1,221 @@
+@model List<Product>
+@{
+    ViewData["Title"] = "New product delivery";
+    var entered = ViewBag.Entered as List<ExtraLineInput> ?? new List<ExtraLineInput>();
+    var catalog = Model.Select(p => new
+    {
+        id = p.Id,
+        name = p.Name,
+        per = p.UnitsPerBundle,
+        bu = p.BundleUnit,
+        lu = p.LooseUnit,
+        size = p.BundleSizeText,
+        stock = p.Pack(p.TotalLooseQty)
+    });
+    var prefill = entered.Where(x => x.ProductId > 0).Select(x => new
+    {
+        id = x.ProductId,
+        b = x.Bundles,
+        l = x.Loose,
+        exp = x.Expiry?.ToString("yyyy-MM-dd") ?? ""
+    });
+}
+
+<a asp-action="Index" class="btn-back mb-2"><span>&larr;</span> Back to orders</a>
+<h1 class="h4 mb-1 mt-2">New product delivery</h1>
+<p class="small">Use this when stock arrived without an order, for example sent by HQ. Search each item that arrived, then fill in the quantity and expiry date. Stock is added when you save.</p>
+
+<form asp-action="NewDelivery" method="post" id="deliveryForm">
+
+    <div class="pick-search mb-3">
+        <input type="text" id="itemSearch" class="form-control" placeholder="Search an item that arrived" autocomplete="off" />
+        <div class="pick-results" id="searchResults"></div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-zus">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Bundles</th>
+                    <th>Loose</th>
+                    <th>Expiry date</th>
+                    <th class="text-end">Total (loose)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="deliveryBody">
+                <tr id="emptyRow">
+                    <td colspan="6" class="text-center py-4">No items yet. Search above to add the items that arrived.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel mt-3">
+        <label class="form-label">Note (optional), e.g. extra stock from the HQ driver</label>
+        <input name="note" maxlength="300" class="form-control mb-3" value="@ViewBag.Note" />
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+            <button type="submit" id="saveBtn" class="btn btn-ok" disabled>Save delivery and add to stock</button>
+            <span><strong id="itemCount">0</strong> item(s) in this delivery</span>
+        </div>
+        <div class="small mt-2">If an expiry date is left empty, food and drinks get a date one month from today, and you will be told which ones.</div>
+    </div>
+</form>
+
+@section Scripts {
+    <script>
+        (function () {
+            var items = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(catalog));
+            var prefill = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(prefill));
+
+            var body = document.getElementById('deliveryBody');
+            var emptyRow = document.getElementById('emptyRow');
+            var search = document.getElementById('itemSearch');
+            var results = document.getElementById('searchResults');
+            var countEl = document.getElementById('itemCount');
+            var saveBtn = document.getElementById('saveBtn');
+            var form = document.getElementById('deliveryForm');
+
+            function esc(s) {
+                return String(s).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            }
+
+            function rows() { return body.querySelectorAll('tr[data-id]'); }
+
+            function stepper(cls, val, unit) {
+                return '<div class="qty-cell"><div class="qty-stepper qty-sm">' +
+                       '<button type="button" class="qty-btn qty-minus" aria-label="Less">&minus;</button>' +
+                       '<input type="number" class="form-control qty-input ' + cls + '" min="0" max="1000000" step="1" value="' + val + '" />' +
+                       '<button type="button" class="qty-btn qty-plus" aria-label="More">+</button></div>' +
+                       '<span class="small">' + esc(unit) + '</span></div>';
+            }
+
+            function addRow(it, b, l, exp) {
+                var existing = body.querySelector('tr[data-id="' + it.id + '"]');
+                if (existing) {
+                    existing.classList.add('row-flash');
+                    setTimeout(function () { existing.classList.remove('row-flash'); }, 900);
+                    return;
+                }
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-id', it.id);
+                tr.setAttribute('data-per', it.per);
+
+                var bundleCell = it.per > 1
+                    ? stepper('f-b', b, it.bu)
+                    : '<input type="hidden" class="f-b" value="0" /><span class="small">-</span>';
+
+                tr.innerHTML =
+                    '<td><div class="fw-semibold">' + esc(it.name) + '</div>' +
+                    '<div class="small">In stock: ' + esc(it.stock) + ' &middot; ' + esc(it.size) + '</div>' +
+                    '<input type="hidden" class="f-id" value="' + it.id + '" /></td>' +
+                    '<td>' + bundleCell + '</td>' +
+                    '<td>' + stepper('f-l', l, it.lu) + '</td>' +
+                    '<td><input type="date" class="form-control form-control-sm f-e" style="min-width:150px" value="' + esc(exp || '') + '" /></td>' +
+                    '<td class="text-end"><strong class="tot">0</strong> ' + esc(it.lu) + '</td>' +
+                    '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-zus row-del" title="Remove this item">&times;</button></td>';
+
+                body.appendChild(tr);
+                update();
+            }
+
+            function num(el) { return Math.max(0, parseInt(el.value, 10) || 0); }
+
+            function renumber() {
+                var i = 0;
+                rows().forEach(function (tr) {
+                    tr.querySelector('.f-id').name = 'lines[' + i + '].ProductId';
+                    tr.querySelector('.f-b').name = 'lines[' + i + '].Bundles';
+                    tr.querySelector('.f-l').name = 'lines[' + i + '].Loose';
+                    tr.querySelector('.f-e').name = 'lines[' + i + '].Expiry';
+                    i++;
+                });
+            }
+
+            function update() {
+                var n = 0;
+                rows().forEach(function (tr) {
+                    var per = parseInt(tr.getAttribute('data-per'), 10) || 1;
+                    var total = num(tr.querySelector('.f-b')) * per + num(tr.querySelector('.f-l'));
+                    tr.querySelector('.tot').textContent = total;
+                    if (total > 0) n++;
+                });
+                emptyRow.style.display = rows().length === 0 ? '' : 'none';
+                countEl.textContent = n;
+                saveBtn.disabled = n === 0;
+                renumber();
+            }
+
+            function hits() {
+                var q = search.value.trim().toLowerCase();
+                var added = {};
+                rows().forEach(function (r) { added[r.getAttribute('data-id')] = true; });
+                return items.filter(function (i) {
+                    return !added[i.id] && (q === '' || i.name.toLowerCase().indexOf(q) >= 0);
+                }).slice(0, 8);
+            }
+
+            function showResults() {
+                var list = hits();
+                if (list.length === 0) {
+                    results.innerHTML = '<div class="pick-none">No matching item (or it is already in this delivery).</div>';
+                } else {
+                    results.innerHTML = list.map(function (i) {
+                        return '<button type="button" class="pick-hit" data-id="' + i.id + '"><span><strong>' + esc(i.name) +
+                               '</strong> <span class="small">(' + esc(i.size) + ')</span></span><span class="small">In stock: ' +
+                               esc(i.stock) + '</span></button>';
+                    }).join('');
+                }
+                results.style.display = 'block';
+            }
+
+            function pick(id) {
+                var it = items.filter(function (x) { return x.id === id; })[0];
+                if (!it) return;
+                addRow(it, it.per > 1 ? 1 : 0, it.per > 1 ? 0 : 1, '');
+                search.value = '';
+                results.style.display = 'none';
+                search.focus();
+            }
+
+            search.addEventListener('input', showResults);
+            search.addEventListener('focus', showResults);
+            search.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    var list = hits();
+                    if (list.length > 0) pick(list[0].id);
+                } else if (e.key === 'Escape') {
+                    results.style.display = 'none';
+                }
+            });
+            results.addEventListener('click', function (e) {
+                var btn = e.target.closest('.pick-hit');
+                if (btn) pick(parseInt(btn.getAttribute('data-id'), 10));
+            });
+            document.addEventListener('click', function (e) {
+                if (!e.target.closest('.pick-search')) results.style.display = 'none';
+            });
+
+            body.addEventListener('click', function (e) {
+                var del = e.target.closest('.row-del');
+                if (del) { del.closest('tr').remove(); update(); }
+            });
+            body.addEventListener('input', update);
+
+            form.addEventListener('submit', function (e) {
+                update();
+                if (saveBtn.disabled) { e.preventDefault(); }
+            });
+
+            prefill.forEach(function (p) {
+                var it = items.filter(function (x) { return x.id === p.id; })[0];
+                if (it) addRow(it, p.b, p.l, p.exp);
+            });
+            update();
+        })();
+    </script>
+}

@@ -1,0 +1,12 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+appsettings*.json
+!appsettings.example.json
+.env
+.env.*
+!.env.example
+*.map
+
