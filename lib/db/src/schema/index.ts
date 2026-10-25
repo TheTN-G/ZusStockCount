@@ -2,6 +2,8 @@ export * from "./users";
 export * from "./workspaces";
 export * from "./storerooms";
 export * from "./storeInvitations";
+export * from "./securityEvents";
+export * from "./passwordResetTokens";
 export * from "./products";
 export * from "./catalogue";
 export * from "./inventory";

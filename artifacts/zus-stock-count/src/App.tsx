@@ -5,18 +5,20 @@ import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Route, Switch, Redirect, Link, useLocation, Router as WouterRouter, useParams } from 'wouter';
 import {
-  Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, Boxes, Check, CheckCircle2, ChevronDown,
+  Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, Boxes, Check, CheckCircle2, ChevronDown, Copy,
   ClipboardCheck, Clock3, Coffee, FilePlus2, Filter, LayoutDashboard, LogOut, Menu, Package, Plus, Search,
   ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, UserRound, Users, X, CalendarClock, RefreshCw, Building2, Settings, Truck, Thermometer,
 } from 'lucide-react';
 import {
   getGetCurrentUserQueryKey, getGetDashboardSummaryQueryKey, getGetProductQueryKey, getGetStockCountQueryKey, getHealthCheckQueryKey,
+  getListStoreSecurityEventsQueryKey,
   getListProductsQueryKey, getListPurchaseOrdersQueryKey, getListStockBatchesQueryKey, getListStoreInvitationsQueryKey,
   getListSuppliersQueryKey, getListDeliveriesQueryKey,
   getListStockCountsQueryKey, getListStockMovementsQueryKey, getListStoreUsersQueryKey,
   getListProductCategoriesQueryKey, getListStockSectionsQueryKey,
   getGetStockTransferOptionsQueryKey,
   useAddStoreMember, useCreateProduct, useCreatePurchaseOrder, useCreateStockAdjustment, useCreateStockCount,
+  useRequestStoreUserPasswordReset, useListStoreSecurityEvents, useCompleteStoreUserPasswordReset,
   useCreateStoreInvitation, useCreateOutlet, useUpdateOutlet, useUpdateWorkspace, useCreateSupplier, useUpdateSupplier, useListSuppliers,
   useListDeliveries, useCreateDelivery, useDecideDelivery,
   useCompleteWorkspaceSetup,
@@ -393,7 +395,10 @@ function Dashboard() {
   const { data: products = [] } = useListProducts({ active: true }, { query: { queryKey: getListProductsQueryKey({ active: true }) } });
   const { data: batches = [] } = useListStockBatches({}, { query: { queryKey: getListStockBatchesQueryKey({}) } });
   const low = products.filter((p) => p.lowStock).slice(0, 4);
-  const expiring = useMemo(() => filterExpiryRadarBatches(batches).slice(0, 4), [batches]);
+  const expiring = useMemo(
+    () => filterExpiryRadarBatches(batches).sort((a, b) => (a.expiryDate ?? '').localeCompare(b.expiryDate ?? '')),
+    [batches],
+  );
   return <><PageHeading eyebrow="Shift overview" title="Good morning." subtitle={`${today} · Here's where your store stands.`} action={<Link href="/counts" className="btn btn-primary"><ClipboardCheck size={16}/> Start a count</Link>}/>
     <QueryState loading={isLoading} error={isError} retry={() => void refetch()}>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
@@ -405,7 +410,7 @@ function Dashboard() {
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
         <section className="panel overflow-hidden"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="text-sm font-extrabold">Stock movements</h2><p className="mt-1 text-[11px] text-muted-foreground">Latest changes in your store</p></div><Link href="/activity" className="btn btn-ghost px-2 text-xs">Full activity <ArrowRight size={14}/></Link></div><MovementRows rows={summary?.recentMovements || []}/></section>
         <div className="space-y-5"><section className="panel overflow-hidden"><div className="flex items-center justify-between px-5 pt-5"><div><div className="mono text-[9px] uppercase tracking-[.15em] text-[#a05c3d]">Watchlist</div><h2 className="mt-1 text-sm font-extrabold">Below par</h2></div><Link href="/products" className="btn btn-ghost p-2"><ArrowRight size={15}/></Link></div><div className="px-5 pb-3 pt-2">{low.length ? low.map((p) => <div key={p.id} className="flex items-center justify-between border-b border-border/70 py-3 last:border-0"><div><div className="text-xs font-bold">{p.name}</div><div className="mt-1 text-[10px] text-muted-foreground">Minimum {p.minStock} {p.unit}</div></div><Pill tone="warn">{p.stockOnHand} left</Pill></div>) : <p className="py-6 text-center text-xs text-muted-foreground">No items below minimum.</p>}</div></section>
-         <section className="panel overflow-hidden"><div className="flex items-center justify-between px-5 pt-5"><div><div className="mono text-[9px] uppercase tracking-[.15em] text-[#53668f]">Expiry radar</div><h2 className="mt-1 text-sm font-extrabold">Use these first</h2></div><Link href="/inventory" className="btn btn-ghost p-2"><ArrowRight size={15}/></Link></div><div className="px-5 pb-3 pt-2">{expiring.length ? expiring.map((b) => <div key={b.id} className="flex items-center justify-between border-b border-border/70 py-3 last:border-0"><div><div className="text-xs font-bold">{b.productName}</div><div className="mt-1 text-[10px] text-muted-foreground">{b.quantity} units · exp {dateText(b.expiryDate)}</div></div><Pill tone="bad">Soon</Pill></div>) : <p className="py-6 text-center text-xs text-muted-foreground">No batches near expiry.</p>}</div></section></div>
+         <section className="panel overflow-hidden"><div className="flex items-center justify-between px-5 pt-5"><div><div className="mono text-[9px] uppercase tracking-[.15em] text-[#53668f]">Expiry radar</div><h2 className="mt-1 text-sm font-extrabold">Use these first</h2></div><div className="flex items-center gap-2">{expiring.length > 0 && <span className="rounded-full bg-[#f6efd9] px-2 py-1 text-[10px] font-bold text-[#8a621b]">{expiring.length} {expiring.length === 1 ? 'batch' : 'batches'}</span>}<Link href="/inventory" className="btn btn-ghost p-2" aria-label="View inventory"><ArrowRight size={15}/></Link></div></div><div className="max-h-80 overflow-y-auto px-5 pb-3 pt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" tabIndex={0} aria-label="Batches expiring today through the next seven days">{expiring.length ? expiring.map((b) => <div key={b.id} className="flex items-center justify-between border-b border-border/70 py-3 last:border-0"><div><div className="text-xs font-bold">{b.productName}</div><div className="mt-1 text-[10px] text-muted-foreground">{b.quantity} units · exp {dateText(b.expiryDate)}</div></div><Pill tone="bad">Soon</Pill></div>) : <p className="py-6 text-center text-xs text-muted-foreground">No batches near expiry.</p>}</div></section></div>
       </div>
        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#101d79] px-5 py-4 text-[#f8f4e9]"><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#eab650] text-[#0b1649]"><Coffee size={18}/></div><div><div className="text-sm font-extrabold">One clean count keeps the next shift calm.</div><div className="mt-1 text-[11px] text-white/60">Start with a full-store walk-through or count a single category.</div></div></div><Link href="/counts" className="btn rounded-lg bg-[#f4d78e] text-[#0b1649]">New stock count <ArrowRight size={14}/></Link></div>
     </QueryState>
@@ -948,9 +953,56 @@ function MovementRows({ rows }: { rows: StockMovement[] }) {
   return rows.length ? <div>{rows.map((m) => <div key={m.id} className="flex items-center gap-3 border-b border-border/70 px-5 py-3.5 last:border-0"><div className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${m.quantityDelta < 0 ? 'bg-[#f5e8de] text-[#a65339]' : 'bg-[#e5eee6] text-primary'}`}>{m.quantityDelta < 0 ? <ArrowDownRight size={16}/> : <ArrowUpRight size={16}/>}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold">{m.productName}</div><div className="mt-1 truncate text-[10px] text-muted-foreground">{titleCase(m.type)}{m.sectionName ? ` · ${m.sectionName}` : ''}{m.otherOutletName ? ` · ${m.otherOutletName}` : ''}{m.transferReference ? ` · ${m.transferReference}` : ''} · {m.reason} · {m.actor}</div></div><div className="text-right"><div className={`mono text-xs font-medium ${m.quantityDelta < 0 ? 'text-[#a65339]' : 'text-primary'}`}>{m.quantityDelta > 0 ? '+' : ''}{m.quantityDelta}</div><div className="mt-1 text-[9px] text-muted-foreground">{timeText(m.occurredAt)}</div></div></div>)}</div> : <EmptyState title="No movements yet" detail="Receipts, adjustments, transfers, and count changes will show up here."/>;
 }
 function ActivityPage() {
-  const [productId, setProductId] = useState(''); const productsQ = useListProducts({}, { query: { queryKey: getListProductsQueryKey({}) } }); const params = { ...(productId ? { productId: Number(productId) } : {}), limit: 100 };
+  const [productId, setProductId] = useState('');
+  const productsQ = useListProducts({}, { query: { queryKey: getListProductsQueryKey({}) } });
+  const params = { ...(productId ? { productId: Number(productId) } : {}), limit: 100 };
   const query = useListStockMovements(params, { query: { queryKey: getListStockMovementsQueryKey(params) } });
-  return <><PageHeading eyebrow="Inventory trail" title="Activity" subtitle="A clear record of what changed, when, and who recorded it."/><div className="panel mb-4 flex items-center gap-3 p-3"><Filter size={15} className="ml-1 text-muted-foreground"/><select className="field max-w-sm" value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">All products</option>{(productsQ.data || []).map((p) => <option value={p.id} key={p.id}>{p.name}</option>)}</select><span className="ml-auto hidden text-[10px] text-muted-foreground sm:block">Showing latest 100</span></div><section className="panel overflow-hidden"><QueryState loading={query.isLoading} error={query.isError} retry={() => void query.refetch()} hasRows={(query.data || []).length > 0} empty={<EmptyState title="Nothing in the trail yet" detail="Your inventory audit trail will fill in as stock changes are recorded."/>}><MovementRows rows={query.data || []}/></QueryState></section></>;
+  const currentUser = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
+  const canViewSecurityEvents = ['owner', 'admin', 'supervisor'].includes(currentUser.data?.role ?? '');
+  const securityEvents = useListStoreSecurityEvents({
+    query: {
+      queryKey: getListStoreSecurityEventsQueryKey(),
+      enabled: canViewSecurityEvents,
+      refetchOnMount: 'always',
+    },
+  });
+  return <>
+    <PageHeading eyebrow="Inventory trail" title="Activity" subtitle="A clear record of what changed, when, and who recorded it."/>
+    <div className="panel mb-4 flex items-center gap-3 p-3">
+      <Filter size={15} className="ml-1 text-muted-foreground"/>
+      <select className="field max-w-sm" value={productId} onChange={(e) => setProductId(e.target.value)}>
+        <option value="">All products</option>
+        {(productsQ.data || []).map((p) => <option value={p.id} key={p.id}>{p.name}</option>)}
+      </select>
+      <span className="ml-auto hidden text-[10px] text-muted-foreground sm:block">Showing latest 100</span>
+    </div>
+    {canViewSecurityEvents && <section className="panel mb-4 overflow-hidden">
+      <div className="border-b border-border px-5 py-4">
+        <h2 className="text-sm font-extrabold">Account security</h2>
+        <p className="mt-1 text-[11px] text-muted-foreground">Password recovery requests for this outlet.</p>
+      </div>
+      <QueryState
+        loading={securityEvents.isLoading}
+        error={securityEvents.isError}
+        retry={() => void securityEvents.refetch()}
+        hasRows={(securityEvents.data || []).length > 0}
+        empty={<EmptyState title="No security events" detail="Password recovery requests will appear here."/>}
+      >
+        {(securityEvents.data || []).map((event) => <div key={event.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-border/75 px-5 py-4 last:border-0">
+          <div className="min-w-0">
+          <div className="text-xs font-bold">Password reset link created for {event.targetName}</div>
+            <div className="mt-1 text-[10px] text-muted-foreground">Requested by {event.actorName}</div>
+          </div>
+          <div className="text-[10px] text-muted-foreground">{timeText(event.createdAt)}</div>
+        </div>)}
+      </QueryState>
+    </section>}
+    <section className="panel overflow-hidden">
+      <QueryState loading={query.isLoading} error={query.isError} retry={() => void query.refetch()} hasRows={(query.data || []).length > 0} empty={<EmptyState title="Nothing in the trail yet" detail="Your inventory audit trail will fill in as stock changes are recorded."/>}>
+        <MovementRows rows={query.data || []}/>
+      </QueryState>
+    </section>
+  </>;
 }
 function Team() {
   const qc = useQueryClient();
@@ -958,17 +1010,42 @@ function Team() {
   const currentUser = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
   const update = useUpdateStoreUserRole();
   const addMember = useAddStoreMember();
+  const passwordResetRequest = useRequestStoreUserPasswordReset();
   const invitationsQuery = useListStoreInvitations({ query: { queryKey: getListStoreInvitationsQueryKey(), enabled: ['owner', 'admin', 'supervisor'].includes(currentUser.data?.role ?? ''), refetchOnMount: 'always', refetchInterval: 30_000 } });
   const createInvitation = useCreateStoreInvitation();
   const revokeInvitation = useRevokeStoreInvitation();
   const [email, setEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const [resetLink, setResetLink] = useState<{
+    name: string;
+    url: string;
+    expiresAt: string;
+  } | null>(null);
+  const [resetLinkCopied, setResetLinkCopied] = useState(false);
   const [role, setRole] = useState<UserRole>('staff');
   const [inviteRole, setInviteRole] = useState<UserRole>('staff');
   const users = query.data || [];
   const canInvite = ['owner', 'admin', 'supervisor'].includes(currentUser.data?.role ?? '');
   const canManageRoles = currentUser.data?.role === 'owner' || currentUser.data?.role === 'admin';
+  const canStartPasswordReset = ['owner', 'admin', 'supervisor'].includes(currentUser.data?.role ?? '');
+  async function startPasswordReset(member: StoreUser) {
+    setResettingUserId(member.id);
+    try {
+      const result = await passwordResetRequest.mutateAsync({ userId: member.id });
+      const link = new URL(`${basePath}/password-reset`, window.location.origin);
+      link.hash = new URLSearchParams({ token: result.resetToken }).toString();
+      setResetLink({ name: member.name, url: link.toString(), expiresAt: result.expiresAt });
+      setResetLinkCopied(false);
+      toast.success('One-time reset link created');
+      void qc.invalidateQueries({ queryKey: getListStoreSecurityEventsQueryKey() });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not start password recovery');
+    } finally {
+      setResettingUserId(null);
+    }
+  }
   function changeRole(user: StoreUser, nextRole: UserRole) {
     update.mutate({ userId: user.id, data: { role: nextRole } }, {
       onSuccess: () => {
@@ -1017,6 +1094,37 @@ function Team() {
   }
   return <>
     <PageHeading eyebrow="Outlet access" title="Team" subtitle="Each outlet has its own team and roles."/>
+    {resetLink && <section className="panel mb-5 border border-[#e4c981] p-5" aria-live="polite">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-extrabold">Reset link for {resetLink.name}</h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">Share this link directly with the teammate. It expires in 30 minutes and works once. Anyone with it can set a new password.</p>
+        </div>
+        <button className="btn btn-soft px-3 py-2 text-xs" type="button" onClick={() => setResetLink(null)}>Hide link</button>
+      </div>
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <input
+          className="field min-w-0 flex-1"
+          aria-label="One-time password reset link"
+          readOnly
+          value={resetLink.url}
+          onFocus={(event) => event.currentTarget.select()}
+        />
+        <button className="btn btn-primary shrink-0" type="button" onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(resetLink.url);
+            setResetLinkCopied(true);
+            toast.success('Reset link copied');
+          } catch {
+            toast.error('Copy unavailable. Select the link and copy it manually.');
+          }
+        }}>
+          {resetLinkCopied ? <Check size={15}/> : <Copy size={15}/>}
+          {resetLinkCopied ? 'Copied' : 'Copy link'}
+        </button>
+      </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">Expires at {new Date(resetLink.expiresAt).toLocaleTimeString()}</p>
+    </section>}
     {canInvite && <section className="panel mb-5 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h2 className="text-sm font-extrabold">Invite a teammate</h2><p className="mt-1 text-[11px] text-muted-foreground">We’ll email them a sign-up invitation. They set their own password and can update their name later.</p></div>
@@ -1057,14 +1165,112 @@ function Team() {
     <section className="panel overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="text-sm font-extrabold">Current outlet team</h2><p className="mt-1 text-[11px] text-muted-foreground">People who can access this inventory.</p></div><Pill>{users.length} people</Pill></div>
       <QueryState loading={query.isLoading} error={query.isError} retry={() => void query.refetch()} hasRows={users.length > 0} empty={<EmptyState title="No team members found" detail="Invite a teammate or add an existing account to give it access to this outlet."/>}>
-        {users.map((member) => <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-border/75 px-5 py-4 last:border-0">
+        {users.map((member) => {
+          const canResetMember = canStartPasswordReset
+            && member.id !== currentUser.data?.id
+            && member.role !== 'owner'
+            && (currentUser.data?.role !== 'supervisor' || member.role === 'staff');
+          return <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-border/75 px-5 py-4 last:border-0">
           <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-[#e8eee7] text-xs font-extrabold text-primary">{member.name.split(' ').map((part) => part[0]).slice(0,2).join('')}</div><div><div className="text-xs font-extrabold">{member.name}</div><div className="mt-1 text-[10px] text-muted-foreground">{member.email}</div></div></div>
-          <div className="flex items-center gap-3"><span className="hidden text-[10px] text-muted-foreground sm:inline">{member.storeName}</span>{member.role === 'owner' ? <Pill tone="good">Owner</Pill> : <select className="field w-36 py-2 text-xs" aria-label={`Role for ${member.name}`} value={member.role} disabled={!canManageRoles || update.isPending} onChange={(e) => changeRole(member, e.target.value as UserRole)}><option value="staff">Staff</option><option value="supervisor">Manager</option><option value="admin">Admin</option></select>}</div>
-        </div>)}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="hidden text-[10px] text-muted-foreground sm:inline">{member.storeName}</span>
+            {member.role === 'owner' ? <Pill tone="good">Owner</Pill> : <select className="field w-36 py-2 text-xs" aria-label={`Role for ${member.name}`} value={member.role} disabled={!canManageRoles || update.isPending} onChange={(e) => changeRole(member, e.target.value as UserRole)}><option value="staff">Staff</option><option value="supervisor">Manager</option><option value="admin">Admin</option></select>}
+            {canResetMember && <button
+              className="btn btn-soft px-3 py-2 text-xs"
+              type="button"
+              disabled={resettingUserId !== null}
+              onClick={() => void startPasswordReset(member)}
+            >
+              {resettingUserId === member.id ? 'Creating…' : 'Create reset link'}
+            </button>}
+          </div>
+        </div>;
+        })}
       </QueryState>
     </section>
   </>;
 }
+function PasswordResetPage() {
+  const [token] = useState(
+    () => new URLSearchParams(window.location.hash.slice(1)).get('token') || '',
+  );
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordMismatch, setPasswordMismatch] = useState(false);
+  const completeReset = useCompleteStoreUserPasswordReset();
+
+  useEffect(() => {
+    if (token) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [token]);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!token) return;
+    if (password !== confirmPassword) {
+      setPasswordMismatch(true);
+      return;
+    }
+    setPasswordMismatch(false);
+    completeReset.mutate(
+      { data: { token, password } },
+      { onSuccess: () => setPassword('') },
+    );
+  }
+
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10">
+    <div className="w-full max-w-lg">
+      <div className="mb-7 flex justify-center"><Brand/></div>
+      {completeReset.isSuccess ? <section className="panel p-6 text-center sm:p-8">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#e5eee6] text-primary"><CheckCircle2 size={22}/></div>
+        <h1 className="zus-title mt-5 text-3xl font-extrabold">Password updated</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Your password has been changed. Sign in again with your new password.</p>
+        <Link href="/sign-in" className="btn btn-primary mt-6 w-full justify-center">Go to sign in</Link>
+      </section> : <section className="panel p-6 sm:p-8">
+        <div className="mono text-[9px] uppercase tracking-[.18em] text-primary">Account recovery</div>
+        <h1 className="zus-title mt-2 text-3xl font-extrabold">Choose a new password</h1>
+        <p className="mt-2 text-sm text-muted-foreground">This reset link can be used once and expires after 30 minutes.</p>
+        {!token ? <div className="mt-6 rounded-xl bg-[#f5e8de] p-4 text-sm text-[#8f4335]" role="alert">
+          This reset link is invalid, expired, or already used. Ask an owner or manager for a new link.
+        </div> : <form className="mt-6 space-y-4" onSubmit={submit}>
+          <label className="block text-xs font-semibold text-foreground">
+            New password
+            <input
+              className="field mt-2"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={256}
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <label className="block text-xs font-semibold text-foreground">
+            Confirm new password
+            <input
+              className="field mt-2"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={256}
+              required
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </label>
+          {passwordMismatch && <p className="text-xs text-destructive" role="alert">The passwords do not match.</p>}
+          {completeReset.isError && <p className="text-xs text-destructive" role="alert">{completeReset.error.message}</p>}
+          <button className="btn btn-primary w-full justify-center" type="submit" disabled={completeReset.isPending}>
+            {completeReset.isPending ? 'Updating…' : 'Update password'}
+          </button>
+        </form>}
+      </section>}
+    </div>
+  </main>;
+}
+
 function OutletsPage() {
   const qc = useQueryClient();
   const { data: user, isLoading, isError, refetch } = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
@@ -1233,7 +1439,7 @@ function WorkspaceSettingsPage() {
 }
 function AccountPage() {
   return <>
-    <PageHeading eyebrow="Personal settings" title="My account" subtitle="Update your profile and sign-in details. Your outlet role is managed separately by the team."/>
+    <PageHeading eyebrow="Personal settings" title="My account" subtitle="Update your profile or use Security to change your sign-in password. Your outlet role is managed separately by the team."/>
     <section className="panel flex justify-center overflow-hidden p-4 sm:p-6">
       <UserProfile routing="path" path={`${basePath}/account`}/>
     </section>
@@ -1272,8 +1478,18 @@ function ClerkRouter() {
   return <ClerkProvider publishableKey={clerkPubKey} proxyUrl={clerkProxyUrl} appearance={clerkAppearance} signInUrl={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}
     localization={{ signIn: { start: { title: 'Welcome back', subtitle: 'Sign in to record and check today’s deliveries.' } }, signUp: { start: { title: 'Create your workspace', subtitle: 'You’ll be the owner. Add your managers and staff after setup.' } } }}
     routerPush={(to: string) => setLocation(stripBase(to))} routerReplace={(to: string) => setLocation(stripBase(to), { replace: true })}>
-    <QueryClientProvider client={queryClient}><AppRoutes/><Toaster richColors position="top-right"/></QueryClientProvider>
+    <AppRoutes/>
   </ClerkProvider>;
 }
-function App() { return <WouterRouter base={basePath}><ClerkRouter/></WouterRouter>; }
+function App() {
+  return <QueryClientProvider client={queryClient}>
+    <WouterRouter base={basePath}>
+      <Switch>
+        <Route path="/password-reset" component={PasswordResetPage}/>
+        <Route><ClerkRouter/></Route>
+      </Switch>
+      <Toaster richColors position="top-right"/>
+    </WouterRouter>
+  </QueryClientProvider>;
+}
 export default App;

@@ -264,6 +264,60 @@ export const RevokeStoreInvitationResponse = zod.object({
 
 
 /**
+ * @summary Start password recovery for a user in the active storeroom
+ */
+
+
+
+export const RequestStoreUserPasswordResetParams = zod.object({
+  "userId": zod.coerce.string().min(1)
+})
+
+export const requestStoreUserPasswordResetResponseResetTokenMin = 40;
+
+
+
+export const RequestStoreUserPasswordResetResponse = zod.object({
+  "resetToken": zod.string().min(requestStoreUserPasswordResetResponseResetTokenMin),
+  "expiresAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Complete a password reset with a single-use token
+ */
+export const completeStoreUserPasswordResetBodyTokenMin = 40;
+export const completeStoreUserPasswordResetBodyTokenMax = 256;
+
+export const completeStoreUserPasswordResetBodyPasswordMin = 8;
+export const completeStoreUserPasswordResetBodyPasswordMax = 256;
+
+
+
+export const CompleteStoreUserPasswordResetBody = zod.object({
+  "token": zod.string().min(completeStoreUserPasswordResetBodyTokenMin).max(completeStoreUserPasswordResetBodyTokenMax),
+  "password": zod.string().min(completeStoreUserPasswordResetBodyPasswordMin).max(completeStoreUserPasswordResetBodyPasswordMax)
+})
+
+export const CompleteStoreUserPasswordResetResponse = zod.object({
+  "complete": zod.literal(true)
+})
+
+
+/**
+ * @summary List recent security events for the active storeroom
+ */
+export const ListStoreSecurityEventsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "eventType": zod.enum(['password_reset_link_created']),
+  "actorName": zod.string(),
+  "targetName": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListStoreSecurityEventsResponse = zod.array(ListStoreSecurityEventsResponseItem)
+
+
+/**
  * @summary Get stock, expiry, approval, and activity totals
  */
 export const GetDashboardSummaryResponse = zod.object({

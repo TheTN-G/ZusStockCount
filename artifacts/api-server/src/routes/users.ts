@@ -1,5 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
 import { clerkClient } from "@clerk/express";
-import { and, desc, eq, gt, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import { Router, type IRouter, type Request } from "express";
 import {
   AddStoreMemberBody,
@@ -8,6 +9,9 @@ import {
   CreateStoreInvitationResponse,
   ListStoreUsersResponse,
   ListStoreInvitationsResponse,
+  ListStoreSecurityEventsResponse,
+  RequestStoreUserPasswordResetParams,
+  RequestStoreUserPasswordResetResponse,
   RevokeStoreInvitationParams,
   RevokeStoreInvitationResponse,
   UpdateStoreUserRoleBody,
@@ -16,7 +20,9 @@ import {
 } from "@workspace/api-zod";
 import {
   db,
+  passwordResetTokensTable,
   storeInvitationsTable,
+  securityEventsTable,
   storeUsersTable,
   storeroomMembershipsTable,
 } from "@workspace/db";
@@ -76,6 +82,118 @@ router.get("/users", requireRoles("owner", "admin", "supervisor"), async (req, r
     ),
   );
 });
+
+router.get(
+  "/users/security-events",
+  requireRoles("owner", "admin", "supervisor"),
+  async (req, res): Promise<void> => {
+    const events = await db
+      .select({
+        id: securityEventsTable.id,
+        eventType: securityEventsTable.eventType,
+        actorName: securityEventsTable.actorName,
+        targetName: securityEventsTable.targetName,
+        createdAt: securityEventsTable.createdAt,
+      })
+      .from(securityEventsTable)
+      .where(eq(securityEventsTable.storeroomId, req.storeroomId!))
+      .orderBy(desc(securityEventsTable.createdAt))
+      .limit(100);
+    res.json(ListStoreSecurityEventsResponse.parse(events));
+  },
+);
+
+router.post(
+  "/users/:userId/password-reset",
+  requireRoles("owner", "admin", "supervisor"),
+  async (req, res): Promise<void> => {
+    const params = RequestStoreUserPasswordResetParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+
+    const [target] = await db
+      .select({
+        userId: storeroomMembershipsTable.userId,
+        role: storeroomMembershipsTable.role,
+        name: storeUsersTable.name,
+      })
+      .from(storeroomMembershipsTable)
+      .innerJoin(
+        storeUsersTable,
+        eq(storeUsersTable.id, storeroomMembershipsTable.userId),
+      )
+      .where(
+        and(
+          eq(storeroomMembershipsTable.userId, params.data.userId),
+          eq(storeroomMembershipsTable.storeroomId, req.storeroomId!),
+        ),
+      )
+      .limit(1);
+    if (!target) {
+      res.status(404).json({ error: "Team member not found in this outlet." });
+      return;
+    }
+    if (target.userId === req.storeUser!.id || target.role === "owner") {
+      res.status(403).json({
+        error: "You cannot start password recovery for this account.",
+      });
+      return;
+    }
+    if (
+      req.storeMembership!.role === "supervisor" &&
+      target.role !== "staff"
+    ) {
+      res.status(403).json({
+        error: "Managers can start password recovery for staff only.",
+      });
+      return;
+    }
+
+    const resetToken = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256").update(resetToken).digest("hex");
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + 30 * 60 * 1000);
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(passwordResetTokensTable)
+        .set({ usedAt: createdAt })
+        .where(
+          and(
+            eq(passwordResetTokensTable.storeroomId, req.storeroomId!),
+            eq(passwordResetTokensTable.targetUserId, target.userId),
+            isNull(passwordResetTokensTable.usedAt),
+          ),
+        );
+      await tx.insert(passwordResetTokensTable).values({
+        storeroomId: req.storeroomId!,
+        targetUserId: target.userId,
+        actorUserId: req.storeUser!.id,
+        tokenHash,
+        createdAt,
+        expiresAt,
+      });
+      await tx.insert(securityEventsTable).values({
+        storeroomId: req.storeroomId!,
+        actorUserId: req.storeUser!.id,
+        targetUserId: target.userId,
+        actorName: req.storeUser!.name,
+        targetName: target.name,
+        eventType: "password_reset_link_created",
+      });
+    });
+
+    res.setHeader("Cache-Control", "no-store");
+    res.status(201).json(
+      RequestStoreUserPasswordResetResponse.parse({
+        resetToken,
+        expiresAt,
+      }),
+    );
+  },
+);
 
 router.post(
   "/users",

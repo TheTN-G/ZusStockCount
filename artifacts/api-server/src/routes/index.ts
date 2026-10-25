@@ -14,12 +14,14 @@ import storeroomsRouter from "./storerooms";
 import workspacesRouter from "./workspaces";
 import suppliersRouter from "./suppliers";
 import deliveriesRouter from "./deliveries";
+import passwordResetRouter from "./passwordReset";
 import { createRequireStoreUser } from "../middlewares/storeUser";
 
 export function createApiRouter(resolveAuth?: StoreAuthResolver): IRouter {
   const router: IRouter = Router();
 
   router.use(healthRouter);
+  router.use(passwordResetRouter);
   router.use(createRequireStoreUser(resolveAuth));
   router.use(currentUserRouter);
   router.use(storeroomsRouter);

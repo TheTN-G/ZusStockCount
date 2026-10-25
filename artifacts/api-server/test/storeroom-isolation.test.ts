@@ -16,6 +16,8 @@ import {
   stockMovementsTable,
   stockSectionsTable,
   stockTransfersTable,
+  securityEventsTable,
+  passwordResetTokensTable,
   storeUsersTable,
   storeroomMembershipsTable,
   storeroomsTable,
@@ -158,10 +160,12 @@ before(async () => {
     db.select({ id: stockTransfersTable.id }).from(stockTransfersTable).limit(1),
     db.select({ id: purchaseOrdersTable.id }).from(purchaseOrdersTable).limit(1),
     db.select({ id: stockCountsTable.id }).from(stockCountsTable).limit(1),
+    db.select({ id: securityEventsTable.id }).from(securityEventsTable).limit(1),
+    db.select({ id: passwordResetTokensTable.id }).from(passwordResetTokensTable).limit(1),
   ]);
   assert.deepEqual(
     preexistingRows,
-    [[], [], [], [], [], [], [], [], [], [], [], []],
+    [[], [], [], [], [], [], [], [], [], [], [], [], [], []],
     "The integration test database must be empty; use a dedicated database, not the app database.",
   );
 
@@ -279,6 +283,14 @@ after(async () => {
   }
   if (fixtureStoreroomIds.length) {
     await db
+      .delete(passwordResetTokensTable)
+      .where(inArray(passwordResetTokensTable.storeroomId, fixtureStoreroomIds));
+    await db
+      .delete(securityEventsTable)
+      .where(inArray(securityEventsTable.storeroomId, fixtureStoreroomIds));
+  }
+  if (fixtureStoreroomIds.length) {
+    await db
       .delete(storeroomsTable)
       .where(inArray(storeroomsTable.id, fixtureStoreroomIds));
   }
@@ -299,6 +311,16 @@ after(async () => {
 });
 
 test("legacy backfill, new-owner setup, and API data remain isolated by storeroom", async () => {
+  const invalidPublicReset = await fetch(
+    `${baseUrl}/api/users/password-reset/complete`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "invalid", password: "not-a-real-password" }),
+    },
+  );
+  assert.equal(invalidPublicReset.status, 400);
+
   const [migrated, newOwner] = await Promise.all([
     api(legacyOwnerId, "/me"),
     api(secondOwnerId, "/me"),
@@ -690,6 +712,90 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     .where(eq(storeroomsTable.id, secondRoomId));
   assert.equal(firstOutletBeforeSetup?.name, "Main Outlet");
 
+  const workspaceProfileBeforeInvalidSetup = await db
+    .select({
+      name: workspacesTable.name,
+      contactEmail: workspacesTable.contactEmail,
+      contactPhone: workspacesTable.contactPhone,
+      businessAddress: workspacesTable.businessAddress,
+      setupComplete: workspacesTable.setupComplete,
+    })
+    .from(workspacesTable)
+    .where(eq(workspacesTable.id, newOwner.data.workspace.id));
+  const invalidRegistrationAttempts: Array<{
+    description: string;
+    overrides: Record<string, string>;
+  }> = [
+    { description: "empty workspace name", overrides: { name: "" } },
+    { description: "blank workspace name", overrides: { name: "   " } },
+    { description: "oversized workspace name", overrides: { name: "W".repeat(81) } },
+    { description: "empty first outlet name", overrides: { firstOutletName: "" } },
+    {
+      description: "oversized first outlet name",
+      overrides: { firstOutletName: "O".repeat(81) },
+    },
+    { description: "empty contact email", overrides: { contactEmail: "" } },
+    {
+      description: "invalid contact email",
+      overrides: { contactEmail: "not-an-email" },
+    },
+    {
+      description: "oversized contact email",
+      overrides: { contactEmail: `${"a".repeat(306)}@example.invalid` },
+    },
+    {
+      description: "oversized contact phone",
+      overrides: { contactPhone: "1".repeat(41) },
+    },
+    {
+      description: "oversized business address",
+      overrides: { businessAddress: "A".repeat(501) },
+    },
+  ];
+  for (const { description, overrides } of invalidRegistrationAttempts) {
+    const rejectedRegistration = await api(secondOwnerId, "/workspaces/me/setup", {
+      method: "PATCH",
+      body: {
+        name: `${fixtureTag} Rejected Registration`,
+        contactEmail: "rejected@example.invalid",
+        contactPhone: "+60 3 5555 0999",
+        businessAddress: "Rejected registration address",
+        firstOutletName: "Rejected Outlet",
+        ...overrides,
+      },
+    });
+    assert.equal(
+      rejectedRegistration.response.status,
+      400,
+      `${description}: ${JSON.stringify(rejectedRegistration.data)}`,
+    );
+
+    const workspaceAfterInvalidSetup = await db
+      .select({
+        name: workspacesTable.name,
+        contactEmail: workspacesTable.contactEmail,
+        contactPhone: workspacesTable.contactPhone,
+        businessAddress: workspacesTable.businessAddress,
+        setupComplete: workspacesTable.setupComplete,
+      })
+      .from(workspacesTable)
+      .where(eq(workspacesTable.id, newOwner.data.workspace.id));
+    const [firstOutletAfterInvalidSetup] = await db
+      .select({ name: storeroomsTable.name })
+      .from(storeroomsTable)
+      .where(eq(storeroomsTable.id, secondRoomId));
+    assert.deepEqual(
+      workspaceAfterInvalidSetup,
+      workspaceProfileBeforeInvalidSetup,
+      `${description} changed the workspace profile`,
+    );
+    assert.equal(
+      firstOutletAfterInvalidSetup?.name,
+      firstOutletBeforeSetup?.name,
+      `${description} changed the first outlet name`,
+    );
+  }
+
   const completedWorkspaceSetup = await api(secondOwnerId, "/workspaces/me/setup", {
     method: "PATCH",
     body: {
@@ -886,6 +992,78 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     },
   });
   assert.equal(managerCannotInviteAdmin.response.status, 403);
+
+  const ownerResetStaff = await api(
+    legacyOwnerId,
+    `/users/${legacyStaffId}/password-reset`,
+    { method: "POST", storeroomId: legacyRoomId },
+  );
+  assert.equal(ownerResetStaff.response.status, 201);
+  assert.equal(ownerResetStaff.data.resetToken.length, 43);
+  assert.ok(Date.parse(ownerResetStaff.data.expiresAt) > Date.now());
+  assert.ok(
+    Date.parse(ownerResetStaff.data.expiresAt) <= Date.now() + 30 * 60 * 1000,
+  );
+  const [storedResetToken] = await db
+    .select({ tokenHash: passwordResetTokensTable.tokenHash })
+    .from(passwordResetTokensTable)
+    .where(eq(passwordResetTokensTable.targetUserId, legacyStaffId));
+  assert.equal(storedResetToken?.tokenHash.length, 64);
+  assert.notEqual(storedResetToken?.tokenHash, ownerResetStaff.data.resetToken);
+
+  const staffCannotResetAccounts = await api(
+    legacyStaffId,
+    `/users/${legacyOwnerId}/password-reset`,
+    { method: "POST", storeroomId: legacyRoomId },
+  );
+  assert.equal(staffCannotResetAccounts.response.status, 403);
+
+  const ownerCannotResetOtherOutletStaff = await api(
+    legacyOwnerId,
+    `/users/${secondStaffId}/password-reset`,
+    { method: "POST", storeroomId: legacyRoomId },
+  );
+  assert.equal(ownerCannotResetOtherOutletStaff.response.status, 404);
+
+  const managerResetStaff = await api(
+    secondStaffId,
+    `/users/${secondManagerInviteeId}/password-reset`,
+    { method: "POST", storeroomId: secondRoomId },
+  );
+  assert.equal(managerResetStaff.response.status, 202);
+  const managerResetOwner = await api(
+    secondStaffId,
+    `/users/${secondOwnerId}/password-reset`,
+    { method: "POST", storeroomId: secondRoomId },
+  );
+  assert.equal(managerResetOwner.response.status, 403);
+
+  const legacySecurityEvents = await api(
+    legacyOwnerId,
+    "/users/security-events",
+    { storeroomId: legacyRoomId },
+  );
+  assert.equal(legacySecurityEvents.response.status, 200);
+  assert.equal(legacySecurityEvents.data.length, 1);
+  assert.equal(legacySecurityEvents.data[0].targetName, legacyStaffId);
+  assert.equal(legacySecurityEvents.data[0].actorName, legacyOwnerId);
+  assert.equal(legacySecurityEvents.data[0].eventType, "password_reset_link_created");
+
+  const outletSecurityEvents = await api(
+    secondOwnerId,
+    "/users/security-events",
+    { storeroomId: secondRoomId },
+  );
+  assert.equal(outletSecurityEvents.response.status, 200);
+  assert.equal(outletSecurityEvents.data.length, 1);
+  assert.equal(outletSecurityEvents.data[0].targetName, secondManagerInviteeId);
+
+  const staffCannotViewSecurityEvents = await api(
+    legacyStaffId,
+    "/users/security-events",
+    { storeroomId: legacyRoomId },
+  );
+  assert.equal(staffCannotViewSecurityEvents.response.status, 403);
 
   const legacyProducts = await api(legacyOwnerId, "/products");
   assert.equal(legacyProducts.response.status, 200);

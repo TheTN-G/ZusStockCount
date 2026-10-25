@@ -199,6 +199,51 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StoreInvitation" }
+  /users/{userId}/password-reset:
+    post:
+      operationId: requestStoreUserPasswordReset
+      tags: [users]
+      summary: Start password recovery for a user in the active storeroom
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string, minLength: 1 }
+      responses:
+        "201":
+          description: Single-use password reset link was created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PasswordResetRequest" }
+  /users/password-reset/complete:
+    post:
+      operationId: completeStoreUserPasswordReset
+      tags: [users]
+      summary: Complete a password reset with a single-use token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompletePasswordResetInput" }
+      responses:
+        "200":
+          description: Password was reset
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompletePasswordResetResponse" }
+  /users/security-events:
+    get:
+      operationId: listStoreSecurityEvents
+      tags: [users]
+      summary: List recent security events for the active storeroom
+      responses:
+        "200":
+          description: Recent security events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SecurityEvent" }
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -804,6 +849,32 @@ components:
         status: { $ref: "#/components/schemas/StoreInvitationStatus" }
         createdAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
+    PasswordResetRequest:
+      type: object
+      required: [resetToken, expiresAt]
+      properties:
+        resetToken: { type: string, minLength: 40 }
+        expiresAt: { type: string, format: date-time }
+    CompletePasswordResetInput:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string, minLength: 40, maxLength: 256 }
+        password: { type: string, minLength: 8, maxLength: 256 }
+    CompletePasswordResetResponse:
+      type: object
+      required: [complete]
+      properties:
+        complete: { type: boolean, enum: [true] }
+    SecurityEvent:
+      type: object
+      required: [id, eventType, actorName, targetName, createdAt]
+      properties:
+        id: { type: integer }
+        eventType: { type: string, enum: [password_reset_link_created] }
+        actorName: { type: string }
+        targetName: { type: string }
+        createdAt: { type: string, format: date-time }
     StoreInvitationInput:
       type: object
       required: [name, email, role]
