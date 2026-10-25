@@ -1488,6 +1488,26 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   fixtureTransferIds.push(intraTransfer.data.id);
   assert.equal(intraTransfer.data.sourceTotalBefore, 10);
   assert.equal(intraTransfer.data.sourceTotalAfter, 10);
+  const listedTransfers = await api(secondOwnerId, "/stock-transfers", {
+    storeroomId: secondRoomId,
+  });
+  assert.equal(listedTransfers.response.status, 200, JSON.stringify(listedTransfers.data));
+  assert.ok(
+    listedTransfers.data.some(
+      ({
+        id,
+        sourceOutletId,
+        destinationOutletId,
+      }: {
+        id: number;
+        sourceOutletId: number;
+        destinationOutletId: number;
+      }) =>
+        id === intraTransfer.data.id &&
+        sourceOutletId === secondRoomId &&
+        destinationOutletId === secondRoomId,
+    ),
+  );
   const intraRetry = await api(secondOwnerId, "/stock-transfers", {
     method: "POST",
     storeroomId: secondRoomId,
