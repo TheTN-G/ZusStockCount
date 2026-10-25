@@ -1603,7 +1603,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   ));
   assert.ok(destinationMovements.data.some(
     ({ type, otherOutletName, transferReference }: { type: string; otherOutletName?: string; transferReference?: string }) =>
-      type === "transfer_in" && otherOutletName === "Main Outlet" && transferReference === crossTransfer.data.reference,
+      type === "transfer_in" && otherOutletName === "Downtown Outlet" && transferReference === crossTransfer.data.reference,
   ));
 
   const emptyCountSection = await api(secondOwnerId, "/stock-sections", {
