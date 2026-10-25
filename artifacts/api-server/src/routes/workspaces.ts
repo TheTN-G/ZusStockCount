@@ -11,11 +11,21 @@ import { requireRoles } from "../middlewares/storeUser";
 
 const router: IRouter = Router();
 
+function trimContactEmailInput(input: unknown): unknown {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return input;
+  }
+  const body = input as Record<string, unknown>;
+  return typeof body.contactEmail === "string"
+    ? { ...body, contactEmail: body.contactEmail.trim() }
+    : input;
+}
+
 router.patch(
   "/workspaces/me",
   requireRoles("owner"),
   async (req, res): Promise<void> => {
-    const body = UpdateWorkspaceBody.safeParse(req.body);
+    const body = UpdateWorkspaceBody.safeParse(trimContactEmailInput(req.body));
     if (!body.success) {
       res.status(400).json({ error: body.error.message });
       return;
@@ -64,7 +74,7 @@ router.patch(
   "/workspaces/me/setup",
   requireRoles("owner"),
   async (req, res): Promise<void> => {
-    const body = CompleteWorkspaceSetupBody.safeParse(req.body);
+    const body = CompleteWorkspaceSetupBody.safeParse(trimContactEmailInput(req.body));
     if (!body.success) {
       res.status(400).json({ error: body.error.message });
       return;
