@@ -1041,10 +1041,16 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
             ({
               productId,
               expectedQuantity,
+              sectionId,
             }: {
               productId: number;
               expectedQuantity: number;
-            }) => ({ productId, countedQuantity: expectedQuantity }),
+              sectionId: number | null;
+            }) => ({
+              productId,
+              sectionId: sectionId ?? undefined,
+              countedQuantity: expectedQuantity,
+            }),
           ),
         },
       },
