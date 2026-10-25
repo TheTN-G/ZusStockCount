@@ -1,0 +1,1324 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: REST API for ZUS Store Stock
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: dashboard
+    description: Store overview
+  - name: users
+    description: Current user and role management
+  - name: workspaces
+    description: Workspace and outlet management
+  - name: products
+    description: Product catalog
+  - name: inventory
+    description: Stock batches and adjustments
+  - name: orders
+    description: Store purchase requests and receiving
+  - name: counts
+    description: Stock count sessions
+  - name: movements
+    description: Inventory audit trail
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /me:
+    get:
+      operationId: getCurrentUser
+      tags: [users]
+      summary: Get the signed-in user's store profile and role
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+  /outlets:
+    post:
+      operationId: createOutlet
+      tags: [workspaces]
+      summary: Create an outlet in the signed-in owner's workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OutletInput" }
+      responses:
+        "201":
+          description: Outlet created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OutletSummary" }
+  /outlets/{outletId}:
+    patch:
+      operationId: updateOutlet
+      tags: [workspaces]
+      summary: Update outlet contact and address details (owners can update any workspace outlet; managers can update only their active assigned outlet)
+      parameters:
+        - in: path
+          name: outletId
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OutletUpdate" }
+      responses:
+        "200":
+          description: Updated outlet details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OutletSummary" }
+        "400":
+          description: Invalid outlet details
+        "403":
+          description: The signed-in user cannot update outlet details
+        "404":
+          description: Outlet is outside the owner's workspace or manager's assigned outlet
+  /workspaces/me:
+    patch:
+      operationId: updateWorkspace
+      tags: [workspaces]
+      summary: Update the signed-in owner's workspace profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceUpdate" }
+      responses:
+        "200":
+          description: Updated workspace profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceSummary" }
+  /workspaces/me/setup:
+    patch:
+      operationId: completeWorkspaceSetup
+      tags: [workspaces]
+      summary: Complete the signed-in owner's workspace registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceSetupInput" }
+      responses:
+        "200":
+          description: Registered workspace
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceSummary" }
+  /users:
+    get:
+      operationId: listStoreUsers
+      tags: [users]
+      summary: List users and roles for this storeroom
+      responses:
+        "200":
+          description: Storeroom team
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StoreUser" }
+    post:
+      operationId: addStoreMember
+      tags: [users]
+      summary: Add an existing account to the active storeroom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddStoreMemberInput" }
+      responses:
+        "201":
+          description: Storeroom team member added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreUser" }
+  /users/invitations:
+    get:
+      operationId: listStoreInvitations
+      tags: [users]
+      summary: List invitations for the active storeroom
+      responses:
+        "200":
+          description: Storeroom invitations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StoreInvitation" }
+    post:
+      operationId: createStoreInvitation
+      tags: [users]
+      summary: Invite an email address to the active storeroom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StoreInvitationInput" }
+      responses:
+        "201":
+          description: Invitation sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreInvitation" }
+  /users/invitations/{invitationId}:
+    delete:
+      operationId: revokeStoreInvitation
+      tags: [users]
+      summary: Revoke a pending storeroom invitation
+      parameters:
+        - in: path
+          name: invitationId
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Revoked or already inactive invitation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreInvitation" }
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get stock, expiry, approval, and activity totals
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: Search and filter the product catalog
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: category
+          schema: { $ref: "#/components/schemas/ProductCategory" }
+        - in: query
+          name: active
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Product" }
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Add a product to the catalog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductInput" }
+      responses:
+        "201":
+          description: Created product
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+  /products/{productId}:
+    parameters:
+      - in: path
+        name: productId
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get a product and its current stock
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Edit product details or deactivate it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductUpdate" }
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+  /product-categories:
+    get:
+      operationId: listProductCategories
+      tags: [products]
+      summary: List product categories for the selected outlet
+      responses:
+        "200":
+          description: Product categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProductCategoryRecord" }
+    post:
+      operationId: createProductCategory
+      tags: [products]
+      summary: Add a product category to the selected outlet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductCategoryInput" }
+      responses:
+        "201":
+          description: Created category
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductCategoryRecord" }
+  /product-categories/{categoryId}:
+    parameters:
+      - in: path
+        name: categoryId
+        required: true
+        schema: { type: integer }
+    patch:
+      operationId: updateProductCategory
+      tags: [products]
+      summary: Rename an outlet product category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductCategoryUpdate" }
+      responses:
+        "200":
+          description: Updated category
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductCategoryRecord" }
+    delete:
+      operationId: deleteProductCategory
+      tags: [products]
+      summary: Delete an unused outlet product category
+      responses:
+        "204":
+          description: Category deleted
+  /stock-sections:
+    get:
+      operationId: listStockSections
+      tags: [inventory]
+      summary: List physical stock sections for the selected outlet
+      responses:
+        "200":
+          description: Stock sections
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockSection" }
+    post:
+      operationId: createStockSection
+      tags: [inventory]
+      summary: Add a physical stock section to the selected outlet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockSectionInput" }
+      responses:
+        "201":
+          description: Created section
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockSection" }
+  /stock-sections/{sectionId}:
+    parameters:
+      - in: path
+        name: sectionId
+        required: true
+        schema: { type: integer }
+    patch:
+      operationId: updateStockSection
+      tags: [inventory]
+      summary: Rename a stock section without changing balances
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockSectionUpdate" }
+      responses:
+        "200":
+          description: Updated section
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockSection" }
+    delete:
+      operationId: deleteStockSection
+      tags: [inventory]
+      summary: Delete an empty non-default stock section
+      responses:
+        "204":
+          description: Section deleted
+  /stock-transfers:
+    get:
+      operationId: listStockTransfers
+      tags: [inventory]
+      summary: List transfers involving the selected outlet
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: Stock transfer history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockTransfer" }
+    post:
+      operationId: createStockTransfer
+      tags: [inventory]
+      summary: Move stock between outlet sections, including other outlets in the workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockTransferInput" }
+      responses:
+        "201":
+          description: Recorded stock transfer
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockTransfer" }
+  /stock-transfers/options:
+    get:
+      operationId: getStockTransferOptions
+      tags: [inventory]
+      summary: Get compatible products and section balances for a transfer
+      parameters:
+        - in: query
+          name: destinationOutletId
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: productId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Transfer source and destination choices
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockTransferOptions" }
+  /suppliers:
+    get:
+      operationId: listSuppliers
+      tags: [suppliers]
+      summary: List suppliers for the selected outlet
+      responses:
+        "200":
+          description: Suppliers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Supplier" }
+    post:
+      operationId: createSupplier
+      tags: [suppliers]
+      summary: Add an outlet supplier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierInput" }
+      responses:
+        "201":
+          description: Created supplier
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Supplier" }
+  /suppliers/{supplierId}:
+    parameters:
+      - in: path
+        name: supplierId
+        required: true
+        schema: { type: integer }
+    patch:
+      operationId: updateSupplier
+      tags: [suppliers]
+      summary: Update or archive an outlet supplier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierUpdate" }
+      responses:
+        "200":
+          description: Updated supplier
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Supplier" }
+  /inventory/batches:
+    get:
+      operationId: listStockBatches
+      tags: [inventory]
+      summary: List stock batches, optionally filtered by product or expiry
+      parameters:
+        - in: query
+          name: productId
+          schema: { type: integer }
+        - in: query
+          name: expiringWithinDays
+          schema: { type: integer, minimum: 1, maximum: 365 }
+      responses:
+        "200":
+          description: Stock batches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockBatch" }
+  /inventory/adjustments:
+    post:
+      operationId: createStockAdjustment
+      tags: [inventory]
+      summary: Add or remove stock with an audit reason
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockAdjustmentInput" }
+      responses:
+        "201":
+          description: Recorded inventory movement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockMovement" }
+  /purchase-orders:
+    get:
+      operationId: listPurchaseOrders
+      tags: [orders]
+      summary: List store purchase requests and their lines
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: "#/components/schemas/OrderStatus" }
+      responses:
+        "200":
+          description: Purchase requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PurchaseOrder" }
+    post:
+      operationId: createPurchaseOrder
+      tags: [orders]
+      summary: Submit a purchase request for approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PurchaseOrderInput" }
+      responses:
+        "201":
+          description: Created purchase request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PurchaseOrder" }
+  /purchase-orders/{orderId}/decision:
+    post:
+      operationId: decidePurchaseOrder
+      tags: [orders]
+      summary: Approve or reject a purchase request
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderDecisionInput" }
+      responses:
+        "200":
+          description: Updated purchase request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PurchaseOrder" }
+  /purchase-orders/{orderId}/receipts:
+    post:
+      operationId: receivePurchaseOrder
+      tags: [orders, inventory]
+      summary: Record a full or partial delivery
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReceiptInput" }
+      responses:
+        "200":
+          description: Updated purchase request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PurchaseOrder" }
+  /deliveries:
+    get:
+      operationId: listDeliveries
+      tags: [deliveries]
+      summary: List receiving records for the selected outlet
+      responses:
+        "200":
+          description: Deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Delivery" }
+    post:
+      operationId: createDelivery
+      tags: [deliveries]
+      summary: Record and rule-check a supplier delivery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeliveryInput" }
+      responses:
+        "201":
+          description: Recorded delivery
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Delivery" }
+  /deliveries/{deliveryId}/decision:
+    post:
+      operationId: decideDelivery
+      tags: [deliveries]
+      summary: Record a manager decision on a held delivery
+      parameters:
+        - in: path
+          name: deliveryId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeliveryDecisionInput" }
+      responses:
+        "200":
+          description: Updated delivery
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Delivery" }
+  /stock-counts:
+    get:
+      operationId: listStockCounts
+      tags: [counts]
+      summary: List recent and active stock counts
+      responses:
+        "200":
+          description: Stock counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockCount" }
+    post:
+      operationId: createStockCount
+      tags: [counts]
+      summary: Start an all-stock, category, or single-product count
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockCountInput" }
+      responses:
+        "201":
+          description: Created stock count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockCount" }
+  /stock-counts/{countId}:
+    get:
+      operationId: getStockCount
+      tags: [counts]
+      summary: Get count lines and expected quantities
+      parameters:
+        - in: path
+          name: countId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Stock count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockCount" }
+  /stock-counts/{countId}/submit:
+    post:
+      operationId: submitStockCount
+      tags: [counts]
+      summary: Submit counted quantities and reconcile inventory
+      parameters:
+        - in: path
+          name: countId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockCountSubmission" }
+      responses:
+        "200":
+          description: Completed stock count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockCount" }
+  /movements:
+    get:
+      operationId: listStockMovements
+      tags: [movements]
+      summary: Get the recent inventory audit trail
+      parameters:
+        - in: query
+          name: productId
+          schema: { type: integer }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: Inventory movements
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockMovement" }
+  /users/{userId}/role:
+    patch:
+      operationId: updateStoreUserRole
+      tags: [users]
+      summary: Change a store user's role
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoleUpdate" }
+      responses:
+        "200":
+          description: Updated store user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreUser" }
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    ProductCategory:
+      type: string
+      minLength: 1
+    UserRole:
+      type: string
+      enum: [staff, supervisor, admin]
+    StoreRole:
+      type: string
+      enum: [owner, admin, supervisor, staff]
+    OrderStatus:
+      type: string
+      enum: [pending, approved, rejected, partially_received, received]
+    CountStatus:
+      type: string
+      enum: [in_progress, completed]
+    StoreUser:
+      type: object
+      required: [id, name, email, role, storeName]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/StoreRole" }
+        storeName: { type: string }
+    StoreInvitationStatus:
+      type: string
+      enum: [pending, accepted, expired, revoked]
+    StoreInvitation:
+      type: object
+      required: [id, email, role, status, createdAt, expiresAt]
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        role: { $ref: "#/components/schemas/UserRole" }
+        status: { $ref: "#/components/schemas/StoreInvitationStatus" }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    StoreInvitationInput:
+      type: object
+      required: [name, email, role]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        email: { type: string, format: email, minLength: 3, maxLength: 320 }
+        role: { $ref: "#/components/schemas/UserRole" }
+    StoreroomSummary:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/StoreRole" }
+    WorkspaceSummary:
+      type: object
+      required: [id, name, contactEmail, contactPhone, businessAddress, setupComplete, isOwner]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        contactEmail: { type: ["string", "null"], format: email }
+        contactPhone: { type: ["string", "null"] }
+        businessAddress: { type: ["string", "null"] }
+        setupComplete: { type: boolean }
+        isOwner: { type: boolean }
+    OutletSummary:
+      type: object
+      required: [id, name, role, contactEmail, contactPhone, businessAddress]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/StoreRole" }
+        contactEmail: { type: ["string", "null"], format: email }
+        contactPhone: { type: ["string", "null"] }
+        businessAddress: { type: ["string", "null"] }
+    CurrentUser:
+      type: object
+      required: [id, name, email, role, storeName, activeStoreroomId, storerooms, workspace, activeOutletId, outlets]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/StoreRole" }
+        storeName: { type: string }
+        activeStoreroomId: { type: integer }
+        storerooms:
+          type: array
+          items: { $ref: "#/components/schemas/StoreroomSummary" }
+        workspace: { $ref: "#/components/schemas/WorkspaceSummary" }
+        activeOutletId: { type: integer }
+        outlets:
+          type: array
+          items: { $ref: "#/components/schemas/OutletSummary" }
+    OutletInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+    OutletUpdate:
+      type: object
+      required: [contactEmail, contactPhone, businessAddress]
+      properties:
+        contactEmail: { type: ["string", "null"], format: email, maxLength: 320 }
+        contactPhone: { type: ["string", "null"], maxLength: 40 }
+        businessAddress: { type: ["string", "null"], maxLength: 500 }
+    WorkspaceUpdate:
+      type: object
+      required: [name, contactEmail, contactPhone, businessAddress]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        contactEmail: { type: ["string", "null"], format: email, maxLength: 320 }
+        contactPhone: { type: ["string", "null"], maxLength: 40 }
+        businessAddress: { type: ["string", "null"], maxLength: 500 }
+    WorkspaceSetupInput:
+      type: object
+      required: [name, contactEmail, contactPhone, businessAddress, firstOutletName]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        contactEmail: { type: ["string", "null"], format: email, maxLength: 320 }
+        contactPhone: { type: ["string", "null"], maxLength: 40 }
+        businessAddress: { type: ["string", "null"], maxLength: 500 }
+        firstOutletName: { type: string, minLength: 1, maxLength: 80 }
+    AddStoreMemberInput:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email }
+        role: { $ref: "#/components/schemas/UserRole" }
+    Product:
+      type: object
+      required: [id, name, category, defaultSectionId, unit, bundleSize, minStock, stockOnHand, lowStock, active, tempMinC, tempMaxC]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        sku: { type: ["string", "null"] }
+        category: { $ref: "#/components/schemas/ProductCategory" }
+        defaultSectionId: { type: ["integer", "null"] }
+        unit: { type: string }
+        bundleSize: { type: number }
+        minStock: { type: number }
+        stockOnHand: { type: number }
+        lowStock: { type: boolean }
+        active: { type: boolean }
+        tempMinC: { type: ["number", "null"] }
+        tempMaxC: { type: ["number", "null"] }
+    ProductInput:
+      type: object
+      required: [name, category, unit, bundleSize, minStock]
+      properties:
+        name: { type: string, minLength: 1 }
+        sku: { type: ["string", "null"] }
+        category: { $ref: "#/components/schemas/ProductCategory" }
+        defaultSectionId: { type: ["integer", "null"] }
+        unit: { type: string, minLength: 1 }
+        bundleSize: { type: number, minimum: 0.01 }
+        minStock: { type: number, minimum: 0 }
+        tempMinC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+        tempMaxC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+    ProductUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        sku: { type: ["string", "null"] }
+        category: { $ref: "#/components/schemas/ProductCategory" }
+        defaultSectionId: { type: ["integer", "null"] }
+        unit: { type: string, minLength: 1 }
+        bundleSize: { type: number, minimum: 0.01 }
+        minStock: { type: number, minimum: 0 }
+        active: { type: boolean }
+        tempMinC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+        tempMaxC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+    ProductCategoryRecord:
+      type: object
+      required: [id, key, name, isDefault, receivingTempMinC, receivingTempMaxC, receivingHandlingSop]
+      properties:
+        id: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        isDefault: { type: boolean }
+        receivingTempMinC: { type: ["number", "null"] }
+        receivingTempMaxC: { type: ["number", "null"] }
+        receivingHandlingSop: { type: string }
+    ProductCategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        receivingTempMinC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+        receivingTempMaxC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+        receivingHandlingSop: { type: string, maxLength: 4000 }
+    ProductCategoryUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        receivingTempMinC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+        receivingTempMaxC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+        receivingHandlingSop: { type: string, maxLength: 4000 }
+    StockSection:
+      type: object
+      required: [id, name, isDefault, quantity]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        isDefault: { type: boolean }
+        quantity: { type: number }
+    StockSectionInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+    StockSectionUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+    StockSectionBalance:
+      type: object
+      required: [id, name, quantity]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        quantity: { type: number }
+    StockTransferProductChoice:
+      type: object
+      required: [id, name, unit, bundleSize, sections]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        unit: { type: string }
+        bundleSize: { type: number }
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/StockSectionBalance" }
+    StockTransferOutlet:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+    StockTransferOptions:
+      type: object
+      required: [sourceOutlet, destinationOutlet, sourceProduct, sourceSections, destinationProducts]
+      properties:
+        sourceOutlet: { $ref: "#/components/schemas/StockTransferOutlet" }
+        destinationOutlet: { $ref: "#/components/schemas/StockTransferOutlet" }
+        sourceProduct: { $ref: "#/components/schemas/StockTransferProductChoice" }
+        sourceSections:
+          type: array
+          items: { $ref: "#/components/schemas/StockSectionBalance" }
+        destinationProducts:
+          type: array
+          items: { $ref: "#/components/schemas/StockTransferProductChoice" }
+    StockTransferInput:
+      type: object
+      required: [clientKey, destinationOutletId, productId, destinationProductId, sourceSectionId, destinationSectionId, quantity, expectedSourceQuantity, expectedDestinationQuantity]
+      properties:
+        clientKey: { type: string, format: uuid }
+        destinationOutletId: { type: integer }
+        productId: { type: integer }
+        destinationProductId: { type: integer }
+        sourceSectionId: { type: integer }
+        destinationSectionId: { type: integer }
+        quantity: { type: number, exclusiveMinimum: 0, multipleOf: 0.01 }
+        expectedSourceQuantity: { type: number, minimum: 0 }
+        expectedDestinationQuantity: { type: number, minimum: 0 }
+        note: { type: string, maxLength: 1000 }
+    StockTransfer:
+      type: object
+      required: [id, reference, sourceOutletId, sourceOutletName, destinationOutletId, destinationOutletName, sourceProductId, sourceProductName, destinationProductId, destinationProductName, sourceSectionId, sourceSectionName, destinationSectionId, destinationSectionName, quantity, unit, sourceBefore, sourceAfter, destinationBefore, destinationAfter, sourceTotalBefore, sourceTotalAfter, destinationTotalBefore, destinationTotalAfter, note, actor, occurredAt]
+      properties:
+        id: { type: integer }
+        reference: { type: string }
+        sourceOutletId: { type: integer }
+        sourceOutletName: { type: string }
+        destinationOutletId: { type: integer }
+        destinationOutletName: { type: string }
+        sourceProductId: { type: integer }
+        sourceProductName: { type: string }
+        destinationProductId: { type: integer }
+        destinationProductName: { type: string }
+        sourceSectionId: { type: ["integer", "null"] }
+        sourceSectionName: { type: string }
+        destinationSectionId: { type: ["integer", "null"] }
+        destinationSectionName: { type: string }
+        quantity: { type: number }
+        unit: { type: string }
+        sourceBefore: { type: number }
+        sourceAfter: { type: number }
+        destinationBefore: { type: number }
+        destinationAfter: { type: number }
+        sourceTotalBefore: { type: number }
+        sourceTotalAfter: { type: number }
+        destinationTotalBefore: { type: number }
+        destinationTotalAfter: { type: number }
+        note: { type: string }
+        actor: { type: string }
+        occurredAt: { type: string, format: date-time }
+    Supplier:
+      type: object
+      required: [id, name, contactName, phone, email, notes, active, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        contactName: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    SupplierInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        contactName: { type: ["string", "null"], maxLength: 120 }
+        phone: { type: ["string", "null"], maxLength: 40 }
+        email: { type: ["string", "null"], format: email, maxLength: 320 }
+        notes: { type: ["string", "null"], maxLength: 1000 }
+    SupplierUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        contactName: { type: ["string", "null"], maxLength: 120 }
+        phone: { type: ["string", "null"], maxLength: 40 }
+        email: { type: ["string", "null"], format: email, maxLength: 320 }
+        notes: { type: ["string", "null"], maxLength: 1000 }
+        active: { type: boolean }
+    StockBatch:
+      type: object
+      required: [id, productId, productName, quantity, receivedAt, sectionId, sectionName]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        quantity: { type: number }
+        expiryDate: { type: ["string", "null"], format: date }
+        receivedAt: { type: string, format: date-time }
+        sectionId: { type: ["integer", "null"] }
+        sectionName: { type: ["string", "null"] }
+    StockAdjustmentInput:
+      type: object
+      required: [productId, quantityDelta, reason]
+      properties:
+        productId: { type: integer }
+        sectionId: { type: integer }
+        quantityDelta: { type: number }
+        reason: { type: string, minLength: 1 }
+        expiryDate: { type: ["string", "null"], format: date }
+    PurchaseOrderLine:
+      type: object
+      required: [productId, productName, quantity, receivedQuantity, unit]
+      properties:
+        productId: { type: integer }
+        productName: { type: string }
+        quantity: { type: number }
+        receivedQuantity: { type: number }
+        unit: { type: string }
+    PurchaseOrder:
+      type: object
+      required: [id, status, requestedBy, createdAt, outlet, lines]
+      properties:
+        id: { type: integer }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        requestedBy: { type: string }
+        reviewedBy: { type: ["string", "null"] }
+        note: { type: ["string", "null"] }
+        supplierId: { type: ["integer", "null"] }
+        supplierName: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        outlet: { $ref: "#/components/schemas/PurchaseOrderOutlet" }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/PurchaseOrderLine" }
+    PurchaseOrderOutlet:
+      type: object
+      required: [id, name, contactEmail, contactPhone, businessAddress]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        contactEmail: { type: ["string", "null"], format: email }
+        contactPhone: { type: ["string", "null"] }
+        businessAddress: { type: ["string", "null"] }
+    PurchaseOrderLineInput:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId: { type: integer }
+        quantity: { type: number, minimum: 0.01 }
+    PurchaseOrderInput:
+      type: object
+      required: [lines]
+      properties:
+        note: { type: string }
+        supplierId: { type: ["integer", "null"] }
+        lines:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/PurchaseOrderLineInput" }
+    OrderDecisionInput:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [approved, rejected] }
+        note: { type: string }
+    ReceiptLineInput:
+      type: object
+      required: [productId, receivedQuantity]
+      properties:
+        productId: { type: integer }
+        receivedQuantity: { type: number, minimum: 0 }
+        expiryDate: { type: ["string", "null"], format: date }
+    ReceiptInput:
+      type: object
+      required: [lines]
+      properties:
+        note: { type: string }
+        lines:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/ReceiptLineInput" }
+    DeliveryStatus:
+      type: string
+      enum: [accepted, pending_approval, rejected, returned]
+    DeliveryLine:
+      type: object
+      required: [productId, productName, quantity, tempC, expiryDate, checkStatus, issue]
+      properties:
+        productId: { type: integer }
+        productName: { type: string }
+        quantity: { type: number }
+        tempC: { type: ["number", "null"] }
+        expiryDate: { type: ["string", "null"], format: date }
+        checkStatus: { type: string, enum: [pass, review] }
+        issue: { type: ["string", "null"] }
+    Delivery:
+      type: object
+      required: [id, status, supplierId, supplierName, purchaseOrderId, recordedBy, decidedBy, decisionNote, createdAt, lines]
+      properties:
+        id: { type: integer }
+        status: { $ref: "#/components/schemas/DeliveryStatus" }
+        supplierId: { type: ["integer", "null"] }
+        supplierName: { type: ["string", "null"] }
+        purchaseOrderId: { type: ["integer", "null"] }
+        recordedBy: { type: string }
+        decidedBy: { type: ["string", "null"] }
+        decisionNote: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/DeliveryLine" }
+    DeliveryLineInput:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId: { type: integer }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        tempC: { type: ["number", "null"], minimum: -60, maximum: 100 }
+        expiryDate: { type: ["string", "null"], format: date }
+    DeliveryInput:
+      type: object
+      required: [lines]
+      properties:
+        supplierId: { type: ["integer", "null"] }
+        purchaseOrderId: { type: ["integer", "null"] }
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/DeliveryLineInput" }
+    DeliveryDecisionInput:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [accepted, rejected, returned] }
+        note: { type: string, maxLength: 1000 }
+    StockCountLine:
+      type: object
+      required: [id, productId, productName, expectedQuantity, countedQuantity, unit, sectionId, sectionName]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        expectedQuantity: { type: number }
+        countedQuantity: { type: ["number", "null"] }
+        unit: { type: string }
+        sectionId: { type: ["integer", "null"] }
+        sectionName: { type: ["string", "null"] }
+    StockCount:
+      type: object
+      required: [id, scope, status, createdBy, createdAt, lines]
+      properties:
+        id: { type: integer }
+        scope: { type: string }
+        status: { $ref: "#/components/schemas/CountStatus" }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/StockCountLine" }
+    StockCountInput:
+      type: object
+      required: [scope]
+      properties:
+        scope: { type: string, enum: [all, category, product] }
+        category: { $ref: "#/components/schemas/ProductCategory" }
+        productId: { type: integer }
+    StockCountLineInput:
+      type: object
+      required: [productId, countedQuantity]
+      properties:
+        productId: { type: integer }
+        sectionId: { type: integer }
+        countedQuantity: { type: number, minimum: 0 }
+    StockCountSubmission:
+      type: object
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/StockCountLineInput" }
+    MovementType:
+      type: string
+      enum: [received, adjustment, count, delivery, transfer_in, transfer_out]
+    StockMovement:
+      type: object
+      required: [id, productId, productName, type, quantityDelta, reason, actor, occurredAt, sectionName, otherOutletName, transferReference]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        type: { $ref: "#/components/schemas/MovementType" }
+        quantityDelta: { type: number }
+        reason: { type: string }
+        actor: { type: string }
+        occurredAt: { type: string, format: date-time }
+        sectionName: { type: ["string", "null"] }
+        otherOutletName: { type: ["string", "null"] }
+        transferReference: { type: ["string", "null"] }
+    DashboardSummary:
+      type: object
+      required: [productCount, lowStockCount, expiringSoonCount, pendingApprovals, recentMovements]
+      properties:
+        productCount: { type: integer }
+        lowStockCount: { type: integer }
+        expiringSoonCount: { type: integer }
+        pendingApprovals: { type: integer }
+        recentMovements:
+          type: array
+          items: { $ref: "#/components/schemas/StockMovement" }
+    RoleUpdate:
+      type: object
+      required: [role]
+      properties:
+        role: { $ref: "#/components/schemas/UserRole" }
+

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "ZUS Stock Count"
+description = "A phone-first inventory and ordering app for ZUS store teams. Staff track expiry batches, receive deliveries, and count stock; supervisors review and approve store orders. It uses a first-party REST API and PostgreSQL, with no AI features."
+version = "1.0.0"
+id = "artifacts/zus-stock-count"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24513
+
+[services.development]
+run = "pnpm --filter @workspace/zus-stock-count run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/zus-stock-count", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/zus-stock-count/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24513"
+BASE_PATH = "/"
