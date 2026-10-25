@@ -1561,7 +1561,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     body: { ...crossPayload, clientKey: crypto.randomUUID() },
   });
   assert.equal(staleTransfer.response.status, 409, JSON.stringify(staleTransfer.data));
-  const staffTransfer = await api(secondStaffId, "/stock-transfers", {
+  const staffTransfer = await api(secondManagerInviteeId, "/stock-transfers", {
     method: "POST",
     storeroomId: secondRoomId,
     body: {},
