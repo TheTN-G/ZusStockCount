@@ -79,6 +79,44 @@ export interface StoreInvitation {
   expiresAt: string;
 }
 
+export interface PasswordResetRequest {
+  /** @minLength 40 */
+  resetToken: string;
+  expiresAt: string;
+}
+
+export interface CompletePasswordResetInput {
+  /**
+     * @minLength 40
+     * @maxLength 256
+     */
+  token: string;
+  /**
+     * @minLength 8
+     * @maxLength 256
+     */
+  password: string;
+}
+
+export interface CompletePasswordResetResponse {
+  complete: true;
+}
+
+export type SecurityEventEventType = typeof SecurityEventEventType[keyof typeof SecurityEventEventType];
+
+
+export const SecurityEventEventType = {
+  password_reset_link_created: 'password_reset_link_created',
+} as const;
+
+export interface SecurityEvent {
+  id: number;
+  eventType: SecurityEventEventType;
+  actorName: string;
+  targetName: string;
+  createdAt: string;
+}
+
 export interface StoreInvitationInput {
   /**
      * @minLength 1

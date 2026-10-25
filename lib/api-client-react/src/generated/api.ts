@@ -26,6 +26,8 @@ import type {
 
 import type {
   AddStoreMemberInput,
+  CompletePasswordResetInput,
+  CompletePasswordResetResponse,
   CurrentUser,
   DashboardSummary,
   Delivery,
@@ -42,6 +44,7 @@ import type {
   OutletInput,
   OutletSummary,
   OutletUpdate,
+  PasswordResetRequest,
   Product,
   ProductCategoryInput,
   ProductCategoryRecord,
@@ -52,6 +55,7 @@ import type {
   PurchaseOrderInput,
   ReceiptInput,
   RoleUpdate,
+  SecurityEvent,
   StockAdjustmentInput,
   StockBatch,
   StockCount,
@@ -1109,6 +1113,269 @@ export const useRevokeStoreInvitation = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getRevokeStoreInvitationMutationOptions(options), queryClient);
     }
+
+export const getRequestStoreUserPasswordResetUrl = (userId: string,) => {
+
+
+
+
+  return `/api/users/${userId}/password-reset`
+}
+
+/**
+ * @summary Start password recovery for a user in the active storeroom
+ */
+export const requestStoreUserPasswordReset = async (userId: string, options?: Parameters<typeof customFetch>[1]): Promise<PasswordResetRequest> => {
+
+  return customFetch<PasswordResetRequest>(getRequestStoreUserPasswordResetUrl(userId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRequestStoreUserPasswordResetMutationKey = () => ['requestStoreUserPasswordReset'] as const;
+
+export const getRequestStoreUserPasswordResetMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestStoreUserPasswordReset>>, TError,RequestStoreUserPasswordResetMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestStoreUserPasswordReset>>, TError,RequestStoreUserPasswordResetMutationVariables, TContext> => {
+
+const mutationKey = getRequestStoreUserPasswordResetMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestStoreUserPasswordReset>>, RequestStoreUserPasswordResetMutationVariables> = (props) => {
+          const {userId} = props ?? {};
+
+          return  requestStoreUserPasswordReset(userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestStoreUserPasswordResetMutationResult = NonNullable<Awaited<ReturnType<typeof requestStoreUserPasswordReset>>>
+
+    export type RequestStoreUserPasswordResetMutationError = ErrorType<unknown>
+    export type RequestStoreUserPasswordResetMutationVariables = {userId: string}
+
+    /**
+ * @summary Start password recovery for a user in the active storeroom
+ */
+export const useRequestStoreUserPasswordReset = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestStoreUserPasswordReset>>, TError,RequestStoreUserPasswordResetMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof requestStoreUserPasswordReset>>,
+        TError,
+        RequestStoreUserPasswordResetMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRequestStoreUserPasswordResetMutationOptions(options), queryClient);
+    }
+
+export const getCompleteStoreUserPasswordResetUrl = () => {
+
+
+
+
+  return `/api/users/password-reset/complete`
+}
+
+/**
+ * @summary Complete a password reset with a single-use token
+ */
+export const completeStoreUserPasswordReset = async (completePasswordResetInput: CompletePasswordResetInput, options?: Parameters<typeof customFetch>[1]): Promise<CompletePasswordResetResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<CompletePasswordResetResponse>(getCompleteStoreUserPasswordResetUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(completePasswordResetInput)
+  }
+);}
+
+
+
+
+
+export const getCompleteStoreUserPasswordResetMutationKey = () => ['completeStoreUserPasswordReset'] as const;
+
+export const getCompleteStoreUserPasswordResetMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeStoreUserPasswordReset>>, TError,CompleteStoreUserPasswordResetMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeStoreUserPasswordReset>>, TError,CompleteStoreUserPasswordResetMutationVariables, TContext> => {
+
+const mutationKey = getCompleteStoreUserPasswordResetMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeStoreUserPasswordReset>>, CompleteStoreUserPasswordResetMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  completeStoreUserPasswordReset(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteStoreUserPasswordResetMutationResult = NonNullable<Awaited<ReturnType<typeof completeStoreUserPasswordReset>>>
+    export type CompleteStoreUserPasswordResetMutationBody = BodyType<CompletePasswordResetInput>
+    export type CompleteStoreUserPasswordResetMutationError = ErrorType<unknown>
+    export type CompleteStoreUserPasswordResetMutationVariables = {data: BodyType<CompletePasswordResetInput>}
+
+    /**
+ * @summary Complete a password reset with a single-use token
+ */
+export const useCompleteStoreUserPasswordReset = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeStoreUserPasswordReset>>, TError,CompleteStoreUserPasswordResetMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof completeStoreUserPasswordReset>>,
+        TError,
+        CompleteStoreUserPasswordResetMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCompleteStoreUserPasswordResetMutationOptions(options), queryClient);
+    }
+
+export const getListStoreSecurityEventsUrl = () => {
+
+
+
+
+  return `/api/users/security-events`
+}
+
+/**
+ * @summary List recent security events for the active storeroom
+ */
+export const listStoreSecurityEvents = async ( options?: Parameters<typeof customFetch>[1]): Promise<SecurityEvent[]> => {
+
+  return customFetch<SecurityEvent[]>(getListStoreSecurityEventsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListStoreSecurityEventsQueryKey = () => {
+    return [
+    `/api/users/security-events`
+    ] as const;
+    }
+
+
+export const getListStoreSecurityEventsQueryOptions = <TData = Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListStoreSecurityEventsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listStoreSecurityEvents>>> = ({ signal }) => listStoreSecurityEvents({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListStoreSecurityEventsQueryResult = NonNullable<Awaited<ReturnType<typeof listStoreSecurityEvents>>>
+export type ListStoreSecurityEventsQueryError = ErrorType<unknown>
+
+
+export function useListStoreSecurityEvents<TData = Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listStoreSecurityEvents>>,
+          TError,
+          Awaited<ReturnType<typeof listStoreSecurityEvents>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListStoreSecurityEvents<TData = Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listStoreSecurityEvents>>,
+          TError,
+          Awaited<ReturnType<typeof listStoreSecurityEvents>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListStoreSecurityEvents<TData = Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List recent security events for the active storeroom
+ */
+
+export function useListStoreSecurityEvents<TData = Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listStoreSecurityEvents>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListStoreSecurityEventsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetDashboardSummaryUrl = () => {
 
