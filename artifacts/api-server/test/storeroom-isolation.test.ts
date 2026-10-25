@@ -670,7 +670,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     .from(workspacesTable)
     .where(eq(workspacesTable.id, newOwner.data.workspace.id));
   assert.deepEqual(workspaceBeforeSetup, {
-    name: `${secondOwnerId} Workspace`,
+    name: `${fixtureTag} Business`,
     setupComplete: false,
   });
   const [firstOutletBeforeSetup] = await db
