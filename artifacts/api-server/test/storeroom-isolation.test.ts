@@ -1144,7 +1144,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   const lowStockProduct = await api(legacyOwnerId, `/products/${productA.id}`, {
     method: "PATCH",
     storeroomId: legacyRoomId,
-    body: { minStock: 17 },
+    body: { minStock: 20 },
   });
   assert.equal(lowStockProduct.response.status, 200, JSON.stringify(lowStockProduct.data));
   const adequatelyStockedProduct = await api(
