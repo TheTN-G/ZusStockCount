@@ -218,6 +218,7 @@ export async function applyInventoryDelta(
   return {
     ...movement,
     productName: input.productName,
+    sectionName: movement.sectionNameSnapshot,
   };
 }
 
