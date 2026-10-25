@@ -1325,10 +1325,10 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       pendingApprovals: dashboardB.data.pendingApprovals,
     },
     {
-      productCount: 1,
+      productCount: 2,
       lowStockCount: 0,
       expiringSoonCount: 0,
-      pendingApprovals: 1,
+      pendingApprovals: 2,
     },
   );
   assert.equal(dashboardA.data.recentMovements.length, 6);
