@@ -620,7 +620,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   assert.equal(
     separatedProfiles.data.outlets.find(({ id }: { id: number }) => id === secondOutletId)
       ?.contactEmail,
-    "airport@example.invalid",
+    "new-airport@example.invalid",
   );
   const unauthorizedOutlet = await api(legacyStaffId, "/outlets", {
     method: "POST",
@@ -846,7 +846,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     profilesAfterManagerUpdate.data.outlets.find(
       ({ id }: { id: number }) => id === secondOutletId,
     )?.contactEmail,
-    "airport@example.invalid",
+    "new-airport@example.invalid",
   );
   const managerAddedStaff = await api(secondStaffId, "/users", {
     method: "POST",
