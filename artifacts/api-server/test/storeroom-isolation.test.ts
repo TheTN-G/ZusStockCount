@@ -1470,6 +1470,11 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   const staffRead = await api(legacyStaffId, "/products", { storeroomId: legacyRoomId });
   assert.equal(staffRead.response.status, 200);
   assert.ok(!staffRead.data.some(({ id }: { id: number }) => id === productB.id));
+  // These fixture accounts need explicit edit access to test same-outlet stock writes.
+  await db
+    .update(storeroomMembershipsTable)
+    .set({ permissions: { products: "edit" } })
+    .where(inArray(storeroomMembershipsTable.userId, [legacyStaffId, secondStaffId]));
   const staffOwnWrite = await api(legacyStaffId, "/inventory/adjustments", {
     method: "POST",
     storeroomId: legacyRoomId,
