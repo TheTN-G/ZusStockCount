@@ -14,7 +14,7 @@ export interface CompletePasswordResetInput {
   token: string;
   /**
      * @minLength 8
-     * @maxLength 256
+     * @maxLength 128
      */
   password: string;
 }

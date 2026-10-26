@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ProductCategory } from './productCategory';
+import type { ProductMinStockUnit } from './productMinStockUnit';
 
 export interface Product {
   id: number;
@@ -16,8 +17,12 @@ export interface Product {
   /** @nullable */
   defaultSectionId: number | null;
   unit: string;
+  bundleUnit: string;
   bundleSize: number;
   minStock: number;
+  minStockUnit: ProductMinStockUnit;
+  /** @nullable */
+  preferredSupplierId: number | null;
   stockOnHand: number;
   lowStock: boolean;
   active: boolean;

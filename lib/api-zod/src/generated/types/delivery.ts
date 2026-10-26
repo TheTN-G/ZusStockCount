@@ -17,6 +17,8 @@ export interface Delivery {
   supplierName: string | null;
   /** @nullable */
   purchaseOrderId: number | null;
+  /** @nullable */
+  purchaseOrderNumber: string | null;
   recordedBy: string;
   /** @nullable */
   decidedBy: string | null;

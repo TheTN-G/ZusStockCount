@@ -15,6 +15,10 @@ export interface DeliveryLine {
   tempC: number | null;
   /** @nullable */
   expiryDate: Date | null;
+  /** @nullable */
+  sectionId: number | null;
+  /** @nullable */
+  sectionName: string | null;
   checkStatus: DeliveryLineCheckStatus;
   /** @nullable */
   issue: string | null;

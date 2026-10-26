@@ -86,3 +86,54 @@
     border-color: #d8c7a3 !important;
   }
 }
+
+.print-only-document {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  html:has(body.print-mode),
+  body.print-mode {
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  body.print-mode * {
+    visibility: hidden !important;
+  }
+
+  body.print-mode [data-print-target="true"],
+  body.print-mode [data-print-target="true"] * {
+    visibility: visible !important;
+  }
+
+  body.print-mode [data-print-target="true"] {
+    display: block !important;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  body.print-mode [data-print-target="true"] table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  body.print-mode .no-print {
+    display: none !important;
+  }
+}

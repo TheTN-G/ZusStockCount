@@ -18,6 +18,7 @@ import {
   stockTransfersTable,
   securityEventsTable,
   passwordResetTokensTable,
+  suppliersTable,
   storeUsersTable,
   storeroomMembershipsTable,
   storeroomsTable,
@@ -509,6 +510,38 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       [secondOutletId, "Airport Outlet"],
     ],
   );
+  const renamedSiblingOutlet = await api(
+    secondOwnerId,
+    `/outlets/${secondOutletId}/name`,
+    { method: "PATCH", body: { name: "  Airport Annex  " } },
+  );
+  assert.equal(
+    renamedSiblingOutlet.response.status,
+    200,
+    JSON.stringify(renamedSiblingOutlet.data),
+  );
+  assert.equal(renamedSiblingOutlet.data.name, "Airport Annex");
+  const profileAfterOutletRename = await api(secondOwnerId, "/me");
+  assert.deepEqual(
+    profileAfterOutletRename.data.outlets.map(
+      ({ id, name }: { id: number; name: string }) => [id, name],
+    ),
+    [
+      [secondRoomId, "Main Outlet"],
+      [secondOutletId, "Airport Annex"],
+    ],
+  );
+  const blankOutletRename = await api(
+    secondOwnerId,
+    `/outlets/${secondOutletId}/name`,
+    { method: "PATCH", body: { name: "   " } },
+  );
+  assert.equal(blankOutletRename.response.status, 400);
+  const persistedOutletName = await db
+    .select({ name: storeroomsTable.name })
+    .from(storeroomsTable)
+    .where(eq(storeroomsTable.id, secondOutletId));
+  assert.equal(persistedOutletName[0]?.name, "Airport Annex");
   const outletDetails = await api(secondOwnerId, `/outlets/${secondOutletId}`, {
     method: "PATCH",
     body: {
@@ -587,11 +620,117 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   fixtureOrderIds.push(secondOutletOrder.data.id);
   assert.deepEqual(secondOutletOrder.data.outlet, {
     id: secondOutletId,
-    name: "Airport Outlet",
+    name: "Airport Annex",
     contactEmail: "airport@example.invalid",
     contactPhone: "+60 3 5555 0101",
     businessAddress: "10 Airport Road, Sepang",
   });
+
+  const mainSupplier = await api(secondOwnerId, "/suppliers", {
+    method: "POST",
+    storeroomId: secondRoomId,
+    body: { name: `${fixtureTag}-main-supplier` },
+  });
+  assert.equal(mainSupplier.response.status, 201, JSON.stringify(mainSupplier.data));
+  const outletSupplier = await api(secondOwnerId, "/suppliers", {
+    method: "POST",
+    storeroomId: secondOutletId,
+    body: { name: `${fixtureTag}-outlet-supplier` },
+  });
+  assert.equal(outletSupplier.response.status, 201, JSON.stringify(outletSupplier.data));
+
+  const currentMonthParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "2-digit",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const currentMonthYear = currentMonthParts.find((part) => part.type === "year")?.value;
+  const currentMonth = currentMonthParts.find((part) => part.type === "month")?.value;
+  assert.ok(currentMonthYear && currentMonth);
+  const currentPrefix = `PO-${currentMonthYear}${currentMonth}`;
+  const previousMonthDate = new Date(
+    Date.UTC(2000 + Number(currentMonthYear), Number(currentMonth) - 2, 1),
+  );
+  const previousMonthParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "2-digit",
+    month: "2-digit",
+  }).formatToParts(previousMonthDate);
+  const previousMonthYear = previousMonthParts.find((part) => part.type === "year")?.value;
+  const previousMonth = previousMonthParts.find((part) => part.type === "month")?.value;
+  assert.ok(previousMonthYear && previousMonth);
+  const [previousMonthOrder] = await db
+    .insert(purchaseOrdersTable)
+    .values({
+      storeroomId: secondRoomId,
+      status: "issued",
+      requestedBy: secondOwnerId,
+      orderNumber: `PO-${previousMonthYear}${previousMonth}999`,
+      issuedAt: previousMonthDate,
+    })
+    .returning({ id: purchaseOrdersTable.id });
+  fixtureOrderIds.push(previousMonthOrder.id);
+
+  const createIssueDrafts = async (
+    storeroomId: number,
+    supplierId: number,
+    productId: number,
+    count: number,
+  ) => {
+    const drafts = await Promise.all(
+      Array.from({ length: count }, () =>
+        api(secondOwnerId, "/purchase-orders", {
+          method: "POST",
+          storeroomId,
+          body: { supplierId, lines: [{ productId, quantity: 1 }] },
+        }),
+      ),
+    );
+    for (const draft of drafts) {
+      assert.equal(draft.response.status, 201, JSON.stringify(draft.data));
+      fixtureOrderIds.push(draft.data.id);
+    }
+    return drafts.map(({ data }) => data.id as number);
+  };
+  const [mainDraftIds, outletDraftIds] = await Promise.all([
+    createIssueDrafts(secondRoomId, mainSupplier.data.id, mainOutletProduct.id, 4),
+    createIssueDrafts(secondOutletId, outletSupplier.data.id, outletProduct.id, 2),
+  ]);
+  const issueDrafts = async (storeroomId: number, orderIds: number[]) =>
+    Promise.all(
+      orderIds.map((orderId) =>
+        api(secondOwnerId, `/purchase-orders/${orderId}/issue`, {
+          method: "POST",
+          storeroomId,
+        }),
+      ),
+    );
+  const [issuedMainOrders, issuedOutletOrders] = await Promise.all([
+    issueDrafts(secondRoomId, mainDraftIds),
+    issueDrafts(secondOutletId, outletDraftIds),
+  ]);
+  for (const issued of [...issuedMainOrders, ...issuedOutletOrders]) {
+    assert.equal(issued.response.status, 200, JSON.stringify(issued.data));
+    assert.equal(issued.data.status, "issued");
+    assert.ok(issued.data.orderNumber, "An issued purchase order must have a number.");
+  }
+  const mainSequence = issuedMainOrders
+    .map(({ data }) => data.orderNumber as string)
+    .sort();
+  const outletSequence = issuedOutletOrders
+    .map(({ data }) => data.orderNumber as string)
+    .sort();
+  assert.deepEqual(
+    mainSequence,
+    [1, 2, 3, 4].map((sequence) => `${currentPrefix}${String(sequence).padStart(3, "0")}`),
+    "Concurrent issues must have unique sequential numbers, starting fresh in the current month.",
+  );
+  assert.deepEqual(
+    outletSequence,
+    [1, 2].map((sequence) => `${currentPrefix}${String(sequence).padStart(3, "0")}`),
+    "Each outlet must maintain its own monthly PO number sequence.",
+  );
+
   const updatedSecondOutletDetails = await api(
     secondOwnerId,
     `/outlets/${secondOutletId}`,
@@ -621,7 +760,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       ?.outlet,
     {
       id: secondOutletId,
-      name: "Airport Outlet",
+      name: "Airport Annex",
       contactEmail: "new-airport@example.invalid",
       contactPhone: "+60 3 5555 0102",
       businessAddress: "20 Airport Road, Sepang",
@@ -724,35 +863,41 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     .where(eq(workspacesTable.id, newOwner.data.workspace.id));
   const invalidRegistrationAttempts: Array<{
     description: string;
+    field: string;
     overrides: Record<string, string>;
   }> = [
-    { description: "empty workspace name", overrides: { name: "" } },
-    { description: "blank workspace name", overrides: { name: "   " } },
-    { description: "oversized workspace name", overrides: { name: "W".repeat(81) } },
-    { description: "empty first outlet name", overrides: { firstOutletName: "" } },
+    { description: "empty workspace name", field: "name", overrides: { name: "" } },
+    { description: "blank workspace name", field: "name", overrides: { name: "   " } },
+    { description: "oversized workspace name", field: "name", overrides: { name: "W".repeat(81) } },
+    { description: "empty first outlet name", field: "firstOutletName", overrides: { firstOutletName: "" } },
     {
       description: "oversized first outlet name",
+      field: "firstOutletName",
       overrides: { firstOutletName: "O".repeat(81) },
     },
-    { description: "empty contact email", overrides: { contactEmail: "" } },
+    { description: "empty contact email", field: "contactEmail", overrides: { contactEmail: "" } },
     {
       description: "invalid contact email",
+      field: "contactEmail",
       overrides: { contactEmail: "not-an-email" },
     },
     {
       description: "oversized contact email",
+      field: "contactEmail",
       overrides: { contactEmail: `${"a".repeat(306)}@example.invalid` },
     },
     {
       description: "oversized contact phone",
+      field: "contactPhone",
       overrides: { contactPhone: "1".repeat(41) },
     },
     {
       description: "oversized business address",
+      field: "businessAddress",
       overrides: { businessAddress: "A".repeat(501) },
     },
   ];
-  for (const { description, overrides } of invalidRegistrationAttempts) {
+  for (const { description, field, overrides } of invalidRegistrationAttempts) {
     const rejectedRegistration = await api(secondOwnerId, "/workspaces/me/setup", {
       method: "PATCH",
       body: {
@@ -768,6 +913,11 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       rejectedRegistration.response.status,
       400,
       `${description}: ${JSON.stringify(rejectedRegistration.data)}`,
+    );
+    assert.equal(
+      typeof rejectedRegistration.data.fieldErrors?.[field],
+      "string",
+      `${description} should identify the ${field} field`,
     );
 
     const workspaceAfterInvalidSetup = await db
@@ -913,6 +1063,18 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     managerUpdatedAssignedOutlet.data.businessAddress,
     "Manager-updated outlet address",
   );
+  const managerCannotRenameAssignedOutlet = await api(
+    secondStaffId,
+    `/outlets/${secondRoomId}/name`,
+    { method: "PATCH", body: { name: "Manager Renamed Outlet" } },
+  );
+  assert.equal(managerCannotRenameAssignedOutlet.response.status, 403);
+  const managerCannotRenameSiblingOutlet = await api(
+    secondStaffId,
+    `/outlets/${secondOutletId}/name`,
+    { method: "PATCH", body: { name: "Manager Renamed Sibling" } },
+  );
+  assert.equal(managerCannotRenameSiblingOutlet.response.status, 403);
   const managerCannotUpdateSiblingOutlet = await api(
     secondStaffId,
     `/outlets/${secondOutletId}`,
@@ -983,7 +1145,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   assert.equal(managerCannotAddAdmin.response.status, 403);
   const managerInvitationList = await api(secondStaffId, "/users/invitations");
   assert.equal(managerInvitationList.response.status, 200);
-  const managerCannotInviteAdmin = await api(secondStaffId, "/users/invitations", {
+  const emailInvitationsDisabled = await api(secondStaffId, "/users/invitations", {
     method: "POST",
     body: {
       name: "Elevated Role Check",
@@ -991,7 +1153,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       role: "admin",
     },
   });
-  assert.equal(managerCannotInviteAdmin.response.status, 403);
+  assert.equal(emailInvitationsDisabled.response.status, 410);
 
   const ownerResetStaff = await api(
     legacyOwnerId,
@@ -1176,9 +1338,32 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       (await api(userId, `/stock-counts/${otherRecords.countId}/submit`, {
         method: "POST",
         storeroomId: ownRoomId,
-        body: { lines: [{ productId: otherProduct.id, countedQuantity: 0 }] },
+        body: {
+          lines: [{ productId: otherProduct.id, countedQuantity: 0 }],
+          acknowledgedMovementIds: [],
+        },
       })).response.status,
       404,
+    );
+    assert.equal(
+      (await api(userId, `/stock-counts/${otherRecords.countId}/workbook`, {
+        storeroomId: ownRoomId,
+      })).response.status,
+      404,
+      "A count workbook cannot be downloaded from another outlet.",
+    );
+    assert.equal(
+      (await api(userId, `/stock-counts/${otherRecords.countId}/workbook/upload-url`, {
+        method: "POST",
+        storeroomId: ownRoomId,
+        body: {
+          name: "stock-count.xlsx",
+          size: 1024,
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+      })).response.status,
+      404,
+      "An upload URL cannot be requested for another outlet's count.",
     );
 
     const approvedOrder = await api(
@@ -1208,6 +1393,13 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       storeroomId: ownRoomId,
     });
     assert.equal(ownCount.response.status, 200);
+    assert.equal(ownCount.data.workbook, null);
+    assert.equal(
+      (await api(userId, `/stock-counts/${ownRecords.countId}/workbook`, {
+        storeroomId: ownRoomId,
+      })).response.status,
+      404,
+    );
     const submittedCount = await api(
       userId,
       `/stock-counts/${ownRecords.countId}/submit`,
@@ -1229,6 +1421,9 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
               sectionId: sectionId ?? undefined,
               countedQuantity: expectedQuantity,
             }),
+          ),
+          acknowledgedMovementIds: ownCount.data.movements.map(
+            ({ id }: { id: number }) => id,
           ),
         },
       },
@@ -1777,12 +1972,30 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   );
   assert.ok(sourceMovements.data.some(
     ({ type, otherOutletName, transferReference }: { type: string; otherOutletName?: string; transferReference?: string }) =>
-      type === "transfer_out" && otherOutletName === "Airport Outlet" && transferReference === crossTransfer.data.reference,
+      type === "transfer_out" && otherOutletName === "Airport Annex" && transferReference === crossTransfer.data.reference,
   ));
   assert.ok(destinationMovements.data.some(
     ({ type, otherOutletName, transferReference }: { type: string; otherOutletName?: string; transferReference?: string }) =>
       type === "transfer_in" && otherOutletName === "Downtown Outlet" && transferReference === crossTransfer.data.reference,
   ));
+  const sourceTransferOut = sourceMovements.data.find(
+    ({ type }: { type: string }) => type === "transfer_out",
+  );
+  assert.ok(sourceTransferOut, "source outlet should retain its transfer-out movement");
+  const transferStartedAt = new Date(sourceTransferOut.occurredAt).toISOString();
+  const transferEndsAt = new Date(Date.parse(transferStartedAt) + 1).toISOString();
+  const filteredMovements = await api(
+    secondOwnerId,
+    `/inventory/movements?productId=${sourceProduct.id}&type=transfer_out&dateFrom=${encodeURIComponent(transferStartedAt)}&dateTo=${encodeURIComponent(transferEndsAt)}${sourceTransferOut.sectionName ? `&sectionName=${encodeURIComponent(sourceTransferOut.sectionName)}` : ""}`,
+    { storeroomId: secondRoomId },
+  );
+  assert.equal(filteredMovements.response.status, 200, JSON.stringify(filteredMovements.data));
+  assert.ok(filteredMovements.data.length > 0);
+  assert.ok(filteredMovements.data.every(({ type }: { type: string }) => type === "transfer_out"));
+  assert.ok(filteredMovements.data.some(
+    ({ sectionName, otherOutletName }: { sectionName?: string; otherOutletName?: string }) =>
+      sectionName === sourceTransferOut.sectionName && otherOutletName === "Airport Annex",
+  ), "filtered history should retain the recorded section and outlet labels");
 
   const emptyCountSection = await api(secondOwnerId, "/stock-sections", {
     method: "POST",
@@ -1812,6 +2025,70 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   );
   assert.equal(cannotDeleteCountSection.response.status, 409);
 
+  const stockMovedDuringCount = await api(
+    secondOwnerId,
+    "/inventory/adjustments",
+    {
+      method: "POST",
+      storeroomId: secondRoomId,
+      body: {
+        productId: sourceProduct.id,
+        sectionId: sourceMain.id,
+        quantityDelta: 2,
+        reason: `${fixtureTag}-movement-during-count`,
+      },
+    },
+  );
+  assert.equal(stockMovedDuringCount.response.status, 201, JSON.stringify(stockMovedDuringCount.data));
+  const staleSectionCountSubmit = await api(
+    secondOwnerId,
+    `/stock-counts/${sectionCount.data.id}/submit`,
+    {
+      method: "POST",
+      storeroomId: secondRoomId,
+      body: {
+        lines: sectionCount.data.lines.map(
+          ({
+            productId,
+            sectionId,
+            expectedQuantity,
+          }: {
+            productId: number;
+            sectionId: number;
+            expectedQuantity: number;
+          }) => ({
+            productId,
+            sectionId,
+            countedQuantity: expectedQuantity + (sectionId === sourceMain.id ? 2.5 : 0),
+          }),
+        ),
+        acknowledgedMovementIds: [],
+      },
+    },
+  );
+  assert.equal(staleSectionCountSubmit.response.status, 409, JSON.stringify(staleSectionCountSubmit.data));
+  const refreshedSectionCount = await api(
+    secondOwnerId,
+    `/stock-counts/${sectionCount.data.id}`,
+    { storeroomId: secondRoomId },
+  );
+  assert.ok(
+    refreshedSectionCount.data.movements.some(
+      ({
+        productId,
+        sectionName,
+        quantityDelta,
+      }: {
+        productId: number;
+        sectionName: string;
+        quantityDelta: number;
+      }) =>
+        productId === sourceProduct.id &&
+        sectionName === sourceMain.name &&
+        quantityDelta === 2,
+    ),
+    "An open count should show a later movement with its product, area, and quantity.",
+  );
   const sectionCountSubmission = await api(
     secondOwnerId,
     `/stock-counts/${sectionCount.data.id}/submit`,
@@ -1831,8 +2108,11 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
           }) => ({
             productId,
             sectionId,
-            countedQuantity: expectedQuantity + (sectionId === sourceMain.id ? 0.5 : 0),
+            countedQuantity: expectedQuantity + (sectionId === sourceMain.id ? 2.5 : 0),
           }),
+        ),
+        acknowledgedMovementIds: refreshedSectionCount.data.movements.map(
+          ({ id }: { id: number }) => id,
         ),
       },
     },

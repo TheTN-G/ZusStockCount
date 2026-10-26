@@ -14,6 +14,7 @@ import { storeroomsTable } from "./storerooms";
 import { productsTable } from "./products";
 import { purchaseOrdersTable } from "./orders";
 import { suppliersTable } from "./suppliers";
+import { stockSectionsTable } from "./catalogue";
 
 export const deliveriesTable = pgTable(
   "deliveries",
@@ -57,6 +58,10 @@ export const deliveryLinesTable = pgTable(
       .notNull()
       .references(() => productsTable.id),
     productName: text("product_name").notNull(),
+    sectionId: integer("section_id").references(() => stockSectionsTable.id, {
+      onDelete: "set null",
+    }),
+    sectionNameSnapshot: text("section_name_snapshot"),
     quantity: numeric("quantity", { precision: 12, scale: 2, mode: "number" })
       .notNull(),
     tempC: numeric("temp_c", { precision: 6, scale: 2, mode: "number" }),

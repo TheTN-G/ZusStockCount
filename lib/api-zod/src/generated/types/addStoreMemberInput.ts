@@ -5,9 +5,17 @@
  * REST API for ZUS Store Stock
  * OpenAPI spec version: 0.1.0
  */
+import type { StoreAccess } from './storeAccess';
 import type { UserRole } from './userRole';
 
 export interface AddStoreMemberInput {
-  email: string;
+  email?: string;
+  /**
+     * @minLength 3
+     * @maxLength 32
+     * @pattern ^[A-Za-z0-9._-]{3,32}$
+     */
+  username?: string;
   role: UserRole;
+  access?: StoreAccess;
 }

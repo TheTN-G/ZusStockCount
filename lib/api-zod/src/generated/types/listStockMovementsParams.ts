@@ -5,10 +5,25 @@
  * REST API for ZUS Store Stock
  * OpenAPI spec version: 0.1.0
  */
+import type { MovementType } from './movementType';
 
 export type ListStockMovementsParams = {
 productId?: number;
 /**
+ * Inclusive ISO 8601 start timestamp for the requested period.
+ */
+dateFrom?: string;
+/**
+ * Exclusive ISO 8601 end timestamp for the requested period.
+ */
+dateTo?: string;
+/**
+ * Match the historical stock-section label recorded on the movement.
+ */
+sectionName?: string;
+type?: MovementType;
+/**
+ * Omit to return all matching movements.
  * @minimum 1
  * @maximum 100
  */

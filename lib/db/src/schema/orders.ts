@@ -6,6 +6,8 @@ import {
   serial,
   text,
   timestamp,
+  date,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -18,9 +20,12 @@ export const purchaseOrdersTable = pgTable(
   {
     id: serial("id").primaryKey(),
     storeroomId: integer("storeroom_id").references(() => storeroomsTable.id),
-    status: text("status").notNull().default("pending"),
+    status: text("status").notNull().default("draft"),
     requestedBy: text("requested_by").notNull(),
     reviewedBy: text("reviewed_by"),
+    orderNumber: text("order_number"),
+    expectedDeliveryDate: date("expected_delivery_date"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }),
     supplierId: integer("supplier_id").references(() => suppliersTable.id, {
       onDelete: "set null",
     }),
@@ -35,6 +40,10 @@ export const purchaseOrdersTable = pgTable(
   (table) => ({
     statusIdx: index("purchase_orders_status_idx").on(table.status),
     createdIdx: index("purchase_orders_created_idx").on(table.createdAt),
+    orderNumberIdx: uniqueIndex("purchase_orders_storeroom_number_idx").on(
+      table.storeroomId,
+      table.orderNumber,
+    ),
   }),
 );
 
@@ -59,6 +68,13 @@ export const purchaseOrderLinesTable = pgTable(
       .notNull()
       .default(0),
     unit: text("unit").notNull(),
+    conversionFactor: numeric("conversion_factor", {
+      precision: 12,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(1),
   },
   (table) => ({
     orderIdx: index("purchase_order_lines_order_idx").on(table.orderId),

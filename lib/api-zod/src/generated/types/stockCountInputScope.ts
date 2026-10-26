@@ -11,6 +11,7 @@ export type StockCountInputScope = typeof StockCountInputScope[keyof typeof Stoc
 
 export const StockCountInputScope = {
   all: 'all',
+  section: 'section',
   category: 'category',
   product: 'product',
 } as const;

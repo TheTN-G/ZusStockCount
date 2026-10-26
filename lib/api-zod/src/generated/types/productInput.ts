@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ProductCategory } from './productCategory';
+import type { ProductInputMinStockUnit } from './productInputMinStockUnit';
+import type { ProductInputOpeningStock } from './productInputOpeningStock';
 
 export interface ProductInput {
   /** @minLength 1 */
@@ -17,10 +19,16 @@ export interface ProductInput {
   defaultSectionId?: number | null;
   /** @minLength 1 */
   unit: string;
+  /** @minLength 1 */
+  bundleUnit?: string;
   /** @minimum 0.01 */
   bundleSize: number;
   /** @minimum 0 */
   minStock: number;
+  minStockUnit?: ProductInputMinStockUnit;
+  /** @nullable */
+  preferredSupplierId?: number | null;
+  openingStock?: ProductInputOpeningStock;
   /**
      * @minimum -60
      * @maximum 100

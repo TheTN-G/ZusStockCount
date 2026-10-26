@@ -11,6 +11,8 @@ export interface PurchaseOrderInput {
   note?: string;
   /** @nullable */
   supplierId?: number | null;
+  /** @nullable */
+  expectedDeliveryDate?: Date | null;
   /** @minItems 1 */
   lines: PurchaseOrderLineInput[];
 }

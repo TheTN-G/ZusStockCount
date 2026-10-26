@@ -14,6 +14,7 @@ import {
   deliveryLinesTable,
   productCategoriesTable,
   productsTable,
+  stockSectionsTable,
   purchaseOrderLinesTable,
   purchaseOrdersTable,
   suppliersTable,
@@ -32,6 +33,7 @@ async function getDelivery(deliveryId: number, storeroomId: number) {
       supplierId: deliveriesTable.supplierId,
       supplierName: suppliersTable.name,
       purchaseOrderId: deliveriesTable.purchaseOrderId,
+      purchaseOrderNumber: purchaseOrdersTable.orderNumber,
       recordedBy: deliveriesTable.recordedBy,
       decidedBy: deliveriesTable.decidedBy,
       decisionNote: deliveriesTable.decisionNote,
@@ -39,6 +41,7 @@ async function getDelivery(deliveryId: number, storeroomId: number) {
     })
     .from(deliveriesTable)
     .leftJoin(suppliersTable, eq(suppliersTable.id, deliveriesTable.supplierId))
+    .leftJoin(purchaseOrdersTable, eq(purchaseOrdersTable.id, deliveriesTable.purchaseOrderId))
     .where(and(
       eq(deliveriesTable.id, deliveryId),
       eq(deliveriesTable.storeroomId, storeroomId),
@@ -52,6 +55,8 @@ async function getDelivery(deliveryId: number, storeroomId: number) {
       quantity: deliveryLinesTable.quantity,
       tempC: deliveryLinesTable.tempC,
       expiryDate: deliveryLinesTable.expiryDate,
+      sectionId: deliveryLinesTable.sectionId,
+      sectionName: deliveryLinesTable.sectionNameSnapshot,
       checkStatus: deliveryLinesTable.checkStatus,
       issue: deliveryLinesTable.issue,
     })
@@ -86,6 +91,7 @@ async function receiveLines(
       actor,
       type: "delivery",
       expiryDate: line.expiryDate,
+      sectionId: line.sectionId,
     });
   }
 
@@ -99,16 +105,18 @@ async function receiveLines(
       let quantityLeft = deliveryLine.quantity;
       for (const orderLine of orderLines.filter((line) => line.productId === deliveryLine.productId)) {
         if (quantityLeft <= 0.001) break;
-        const outstanding = Math.max(0, orderLine.quantity - orderLine.receivedQuantity);
-        if (outstanding <= 0.001) continue;
-        const applied = Math.min(outstanding, quantityLeft);
-        const receivedQuantity = orderLine.receivedQuantity + applied;
+        const factor = orderLine.conversionFactor || 1;
+        const outstandingBase = Math.max(0, orderLine.quantity - orderLine.receivedQuantity) * factor;
+        if (outstandingBase <= 0.001) continue;
+        const appliedBase = Math.min(outstandingBase, quantityLeft);
+        const appliedOrderUnits = appliedBase / factor;
+        const receivedQuantity = orderLine.receivedQuantity + appliedOrderUnits;
         await tx
           .update(purchaseOrderLinesTable)
           .set({ receivedQuantity })
           .where(eq(purchaseOrderLinesTable.id, orderLine.id));
         orderLine.receivedQuantity = receivedQuantity;
-        quantityLeft -= applied;
+        quantityLeft -= appliedBase;
       }
     }
     const complete = orderLines.every((line) => line.receivedQuantity >= line.quantity - 0.001);
@@ -151,8 +159,8 @@ router.post("/deliveries", async (req, res): Promise<void> => {
           ))
           .for("update");
         if (!order) throw new ApiError(404, "Purchase request not found in this outlet.");
-        if (!["approved", "partially_received"].includes(order.status)) {
-          throw new ApiError(409, "Only approved requests can be checked against a delivery.");
+        if (!["issued", "approved", "partially_received"].includes(order.status)) {
+          throw new ApiError(409, "Only issued purchase orders can be checked against a delivery.");
         }
         linkedSupplierId = order.supplierId;
         orderLines = await tx
@@ -160,10 +168,6 @@ router.post("/deliveries", async (req, res): Promise<void> => {
           .from(purchaseOrderLinesTable)
           .where(eq(purchaseOrderLinesTable.orderId, order.id))
           .for("update");
-      }
-      const productIds = body.data.lines.map((line) => line.productId);
-      if (new Set(productIds).size !== productIds.length) {
-        throw new ApiError(400, "Add each product once per delivery and combine its quantity.");
       }
       const supplierId = body.data.supplierId ?? linkedSupplierId;
       if (linkedSupplierId && supplierId && linkedSupplierId !== supplierId) {
@@ -227,12 +231,23 @@ router.post("/deliveries", async (req, res): Promise<void> => {
       for (const line of orderLines) {
         remaining.set(
           line.productId,
-          (remaining.get(line.productId) ?? 0) + Math.max(0, line.quantity - line.receivedQuantity),
+          (remaining.get(line.productId) ?? 0) +
+            Math.max(0, line.quantity - line.receivedQuantity) * line.conversionFactor,
         );
       }
+      const selectedSections = await tx
+        .select({ id: stockSectionsTable.id, name: stockSectionsTable.name })
+        .from(stockSectionsTable)
+        .where(eq(stockSectionsTable.storeroomId, req.storeroomId!));
+      const sectionById = new Map(selectedSections.map((section) => [section.id, section]));
       let needsReview = false;
       const checkedLines = body.data.lines.map((item, index) => {
         const product = productRecords[index];
+        const sectionId = item.sectionId ?? product.defaultSectionId ?? null;
+        const section = sectionId === null ? null : sectionById.get(sectionId);
+        if (sectionId !== null && !section) {
+          throw new ApiError(400, "Choose a stock section configured for this outlet.");
+        }
         const issues: string[] = [];
         const hasProductRange = product.tempMinC !== null && product.tempMaxC !== null;
         const low = hasProductRange ? product.tempMinC : product.receivingTempMinC;
@@ -257,6 +272,8 @@ router.post("/deliveries", async (req, res): Promise<void> => {
         return {
           productId: product.id,
           productName: product.name,
+          sectionId,
+          sectionNameSnapshot: section?.name ?? null,
           quantity: item.quantity,
           tempC: item.tempC ?? null,
           expiryDate: item.expiryDate?.toISOString().slice(0, 10) ?? null,

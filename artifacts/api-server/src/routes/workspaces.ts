@@ -76,14 +76,45 @@ router.patch(
   async (req, res): Promise<void> => {
     const body = CompleteWorkspaceSetupBody.safeParse(trimContactEmailInput(req.body));
     if (!body.success) {
-      res.status(400).json({ error: body.error.message });
+      const fieldErrors: Record<string, string> = {};
+      for (const issue of body.error.issues) {
+        const field = issue.path[0];
+        if (typeof field !== "string" || field in fieldErrors) continue;
+        switch (field) {
+          case "name":
+            fieldErrors.name = "Enter a workspace name up to 80 characters long.";
+            break;
+          case "contactEmail":
+            fieldErrors.contactEmail = "Enter a valid business email address, or leave it blank.";
+            break;
+          case "contactPhone":
+            fieldErrors.contactPhone = "Enter a phone number up to 40 characters long.";
+            break;
+          case "businessAddress":
+            fieldErrors.businessAddress = "Enter an address up to 500 characters long.";
+            break;
+          case "firstOutletName":
+            fieldErrors.firstOutletName = "Enter an outlet name up to 80 characters long.";
+            break;
+        }
+      }
+      res.status(400).json({
+        error: "Review the highlighted fields and try again.",
+        fieldErrors,
+      });
       return;
     }
 
     const name = body.data.name.trim();
     const firstOutletName = body.data.firstOutletName.trim();
-    if (!name || name.length > 80 || !firstOutletName || firstOutletName.length > 80) {
-      res.status(400).json({ error: "Workspace and first outlet names must be between 1 and 80 characters." });
+    const fieldErrors: Record<string, string> = {};
+    if (!name) fieldErrors.name = "Enter a workspace name.";
+    if (!firstOutletName) fieldErrors.firstOutletName = "Enter an outlet name.";
+    if (Object.keys(fieldErrors).length) {
+      res.status(400).json({
+        error: "Review the highlighted fields and try again.",
+        fieldErrors,
+      });
       return;
     }
 

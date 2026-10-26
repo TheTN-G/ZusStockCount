@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lt, sql } from "drizzle-orm";
 import type { NodePgTransaction } from "drizzle-orm/node-postgres";
 import {
   db,
@@ -44,8 +44,11 @@ export async function listProducts(
       tempMinC: productsTable.tempMinC,
       tempMaxC: productsTable.tempMaxC,
       unit: productsTable.unit,
+      bundleUnit: productsTable.bundleUnit,
       bundleSize: productsTable.bundleSize,
       minStock: productsTable.minStock,
+      minStockUnit: productsTable.minStockUnit,
+      preferredSupplierId: productsTable.preferredSupplierId,
       active: productsTable.active,
       stockOnHand: sql<number>`coalesce(sum(${stockBatchesTable.quantity}), 0)::float`,
     })
@@ -57,7 +60,9 @@ export async function listProducts(
 
   return rows.map((row) => ({
     ...row,
-    lowStock: row.stockOnHand < row.minStock,
+    lowStock:
+      row.stockOnHand <
+      row.minStock * (row.minStockUnit === "bundle" ? row.bundleSize : 1),
   }));
 }
 
@@ -69,13 +74,29 @@ export async function getProduct(storeroomId: number, productId: number) {
 export async function listMovements(storeroomId: number, options: {
   productId?: number;
   limit?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  sectionName?: string;
+  type?: string;
 } = {}) {
   await db.transaction((tx) => ensureDefaultStockSection(tx, storeroomId));
   const conditions = [eq(productsTable.storeroomId, storeroomId)];
-  if (options.productId) {
+  if (options.productId !== undefined) {
     conditions.push(eq(stockMovementsTable.productId, options.productId));
   }
-  const rows = await db
+  if (options.dateFrom) {
+    conditions.push(gte(stockMovementsTable.occurredAt, new Date(options.dateFrom)));
+  }
+  if (options.dateTo) {
+    conditions.push(lt(stockMovementsTable.occurredAt, new Date(options.dateTo)));
+  }
+  if (options.sectionName) {
+    conditions.push(eq(stockMovementsTable.sectionNameSnapshot, options.sectionName));
+  }
+  if (options.type) {
+    conditions.push(eq(stockMovementsTable.type, options.type));
+  }
+  const query = db
     .select({
       id: stockMovementsTable.id,
       productId: stockMovementsTable.productId,
@@ -92,8 +113,10 @@ export async function listMovements(storeroomId: number, options: {
     .from(stockMovementsTable)
     .innerJoin(productsTable, eq(productsTable.id, stockMovementsTable.productId))
     .where(and(...conditions))
-    .orderBy(desc(stockMovementsTable.occurredAt))
-    .limit(options.limit ?? 20);
+    .orderBy(desc(stockMovementsTable.occurredAt));
+  const rows = options.limit === undefined
+    ? await query
+    : await query.limit(options.limit);
   return rows;
 }
 

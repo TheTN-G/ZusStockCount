@@ -10,6 +10,7 @@ import type { StockCountInputScope } from './stockCountInputScope';
 
 export interface StockCountInput {
   scope: StockCountInputScope;
+  sectionId?: number;
   category?: ProductCategory;
   productId?: number;
 }

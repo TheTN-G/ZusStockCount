@@ -25,6 +25,11 @@ export const stockCountsTable = pgTable(
       .notNull()
       .defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    workbookObjectPath: text("workbook_object_path"),
+    workbookName: text("workbook_name"),
+    workbookUploadedByUserId: text("workbook_uploaded_by_user_id"),
+    workbookUploadedBy: text("workbook_uploaded_by"),
+    workbookSubmittedAt: timestamp("workbook_submitted_at", { withTimezone: true }),
   },
   (table) => ({
     statusIdx: index("stock_counts_status_idx").on(table.status),

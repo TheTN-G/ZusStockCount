@@ -15,15 +15,24 @@ import {
   type StoreroomMembershipRecord,
   type StoreroomRecord,
 } from "@workspace/db";
+import { findLocalSession } from "../auth/localAuth";
+import {
+  accessDenialForRequest,
+  staffMayAccessRequest,
+} from "../lib/storeAccess";
 
 type StoreTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type StoreAuthContext = {
   userId: string | null;
   sessionClaims?: unknown;
+  authType?: "local" | "clerk";
+  sessionId?: string;
 };
 
-export type StoreAuthResolver = (req: Request) => StoreAuthContext;
+export type StoreAuthResolver = (
+  req: Request,
+) => StoreAuthContext | Promise<StoreAuthContext>;
 
 declare global {
   namespace Express {
@@ -33,6 +42,8 @@ declare global {
       storeroom?: StoreroomRecord;
       storeroomId?: number;
       workspaceId?: number;
+      storeAuthType?: "local" | "clerk";
+      storeAuthSessionId?: string;
     }
   }
 }
@@ -351,6 +362,7 @@ async function ensureStoreUser(
   claims: Record<string, unknown>,
   fetchClerkProfile: boolean,
 ): Promise<StoreUserRecord> {
+  const isLocalIdentity = claims.authType === "local";
   const email = claimString(claims, ["email", "email_address"]) ?? "";
   const claimedName = claimString(claims, ["name", "full_name"]);
   const splitName = [
@@ -372,7 +384,10 @@ async function ensureStoreUser(
 
   if (existing) {
     let profile = existing;
-    if ((email && email !== existing.email) || name !== existing.name) {
+    if (
+      !isLocalIdentity &&
+      ((email && email !== existing.email) || name !== existing.name)
+    ) {
       const [updated] = await db
         .update(storeUsersTable)
         .set({ name, email: email || existing.email })
@@ -504,13 +519,14 @@ async function ensureStoreUser(
 export function createRequireStoreUser(
   resolveAuth?: StoreAuthResolver,
 ) {
-  const authResolver = resolveAuth ?? getAuth;
   return async function requireStoreUser(
     req: Request,
     res: Response,
     next: NextFunction,
   ): Promise<void> {
-    const auth = authResolver(req);
+    const auth = resolveAuth
+      ? await resolveAuth(req)
+      : await resolveRequestAuth(req);
     if (!auth.userId) {
       res.status(401).json({ error: "Sign in to continue." });
       return;
@@ -523,6 +539,13 @@ export function createRequireStoreUser(
         claims,
         resolveAuth === undefined,
       );
+      if (auth.authType === "clerk" && user.passwordHash) {
+        res.status(403).json({
+          error: "This account now uses username and password sign-in. Use the standard sign-in page.",
+          code: "PASSWORD_SIGN_IN_REQUIRED",
+        });
+        return;
+      }
       const memberships = await db
         .select({
           membership: storeroomMembershipsTable,
@@ -561,16 +584,59 @@ export function createRequireStoreUser(
       }
 
       req.storeUser = user;
+      req.storeAuthType = auth.authType ?? "clerk";
+      req.storeAuthSessionId = auth.sessionId;
       req.storeMembership = selected.membership;
       req.storeroom = selected.storeroom;
       req.storeroomId = selected.storeroom.id;
       req.workspaceId = workspaceId;
+      if (
+        user.mustChangePassword &&
+        !(
+          (req.method === "GET" && req.path === "/me") ||
+          (req.method === "PATCH" && req.path === "/users/me/password")
+        )
+      ) {
+        res.status(403).json({
+          error: "Change your temporary password before continuing.",
+          code: "PASSWORD_CHANGE_REQUIRED",
+        });
+        return;
+      }
+      const accessDenied = accessDenialForRequest(
+        selected.membership.role,
+        selected.membership.permissions,
+        req.path,
+        req.method,
+      );
+      if (accessDenied) {
+        res.status(403).json({ error: accessDenied });
+        return;
+      }
       res.setHeader("X-Active-Outlet-Id", String(selected.storeroom.id));
       res.setHeader("X-Active-Storeroom-Id", String(selected.storeroom.id));
       next();
     } catch (error) {
       next(error);
     }
+  };
+}
+
+async function resolveRequestAuth(req: Request): Promise<StoreAuthContext> {
+  const session = await findLocalSession(req);
+  if (session) {
+    return {
+      userId: session.userId,
+      authType: "local",
+      sessionId: session.id,
+      sessionClaims: { authType: "local" },
+    };
+  }
+  const clerk = getAuth(req);
+  return {
+    userId: clerk.userId ?? null,
+    sessionClaims: clerk.sessionClaims,
+    authType: "clerk",
   };
 }
 
@@ -582,7 +648,14 @@ export function requireRoles(...roles: string[]) {
       res.status(401).json({ error: "Sign in to continue." });
       return;
     }
-    if (!roles.includes(req.storeMembership.role)) {
+    if (
+      !roles.includes(req.storeMembership.role) &&
+      !staffMayAccessRequest(
+        req.path,
+        req.method,
+        req.storeMembership.permissions,
+      )
+    ) {
       res
         .status(403)
         .json({ error: "You do not have permission for this action." });

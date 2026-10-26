@@ -16,6 +16,7 @@ import {
   productCategoriesTable,
   productsTable,
   stockSectionsTable,
+  suppliersTable,
 } from "@workspace/db";
 import { ApiError } from "../lib/api-error";
 import {
@@ -23,7 +24,7 @@ import {
   ensureDefaultStockSection,
 } from "../lib/catalogue-data";
 import { requireRoles } from "../middlewares/storeUser";
-import { getProduct, listProducts } from "../lib/inventory";
+import { applyInventoryDelta, getProduct, listProducts } from "../lib/inventory";
 
 const router: IRouter = Router();
 
@@ -63,6 +64,11 @@ router.post(
       await ensureDefaultProductCategories(tx, req.storeroomId!);
       const defaultSection = await ensureDefaultStockSection(tx, req.storeroomId!);
       const defaultSectionId = parsed.data.defaultSectionId ?? defaultSection.id;
+      const { openingStock, ...productFields } = parsed.data;
+      const minStockUnit = productFields.minStockUnit ?? "unit";
+      if (minStockUnit === "bundle" && !productFields.bundleUnit?.trim()) {
+        throw new ApiError(400, "Enter a bundle unit before setting the minimum in bundles.");
+      }
       const [section] = await tx
         .select({ id: stockSectionsTable.id })
         .from(stockSectionsTable)
@@ -83,11 +89,38 @@ router.post(
         .for("share")
         .limit(1);
       if (!category) throw new ApiError(400, "Choose a category configured for this outlet.");
+      if (productFields.preferredSupplierId) {
+        const [supplier] = await tx
+          .select({ id: suppliersTable.id })
+          .from(suppliersTable)
+          .where(and(
+            eq(suppliersTable.id, productFields.preferredSupplierId),
+            eq(suppliersTable.storeroomId, req.storeroomId!),
+            eq(suppliersTable.active, true),
+          ))
+          .for("share")
+          .limit(1);
+        if (!supplier) throw new ApiError(400, "Choose an active supplier from this outlet.");
+      }
+      if (openingStock?.sectionId != null) {
+        const [openingSection] = await tx
+          .select({ id: stockSectionsTable.id })
+          .from(stockSectionsTable)
+          .where(and(
+            eq(stockSectionsTable.id, openingStock.sectionId),
+            eq(stockSectionsTable.storeroomId, req.storeroomId!),
+          ))
+          .for("share")
+          .limit(1);
+        if (!openingSection) throw new ApiError(400, "Choose a stock section configured for this outlet.");
+      }
       const [created] = await tx
         .insert(productsTable)
         .values({
-          ...parsed.data,
-          sku: parsed.data.sku ?? null,
+          ...productFields,
+          bundleUnit: productFields.bundleUnit?.trim() || "bundle",
+          minStockUnit,
+          sku: productFields.sku ?? null,
           defaultSectionId,
           storage: "ambient",
           tempMinC: parsed.data.tempMinC ?? null,
@@ -96,6 +129,20 @@ router.post(
           storeroomId: req.storeroomId!,
         })
         .returning();
+      if (openingStock && openingStock.quantity > 0) {
+        await applyInventoryDelta(tx, {
+          productId: created.id,
+          productName: created.name,
+          quantityDelta: openingStock.quantity,
+          reason: "Opening stock",
+          actor: req.storeUser!.name,
+          type: "adjustment",
+          expiryDate: openingStock.expiryDate
+            ? openingStock.expiryDate.toISOString().slice(0, 10)
+            : null,
+          sectionId: openingStock.sectionId ?? defaultSectionId,
+        });
+      }
       return created;
     }).catch((error: unknown) => {
       if (error instanceof ApiError) {
@@ -105,13 +152,8 @@ router.post(
       throw error;
     });
     if (!product) return;
-    res.status(201).json(
-      CreateProductResponse.parse({
-        ...product,
-        stockOnHand: 0,
-        lowStock: 0 < product.minStock,
-      }),
-    );
+    const current = await getProduct(req.storeroomId!, product.id);
+    res.status(201).json(CreateProductResponse.parse(current));
   },
 );
 
@@ -161,6 +203,21 @@ router.patch(
         return;
       }
     }
+    if (body.data.preferredSupplierId != null) {
+      const [supplier] = await db
+        .select({ id: suppliersTable.id })
+        .from(suppliersTable)
+        .where(and(
+          eq(suppliersTable.id, body.data.preferredSupplierId),
+          eq(suppliersTable.storeroomId, req.storeroomId!),
+          eq(suppliersTable.active, true),
+        ))
+        .limit(1);
+      if (!supplier) {
+        res.status(400).json({ error: "Choose an active supplier from this outlet." });
+        return;
+      }
+    }
     if (body.data.category !== undefined) {
       await db.transaction(async (tx) => {
         await ensureDefaultProductCategories(tx, req.storeroomId!);
@@ -188,6 +245,9 @@ router.patch(
         id: productsTable.id,
         tempMinC: productsTable.tempMinC,
         tempMaxC: productsTable.tempMaxC,
+        bundleSize: productsTable.bundleSize,
+        bundleUnit: productsTable.bundleUnit,
+        minStockUnit: productsTable.minStockUnit,
       })
       .from(productsTable)
       .where(and(
@@ -197,6 +257,17 @@ router.patch(
       .limit(1);
     if (!current) {
       res.status(404).json({ error: "Product not found." });
+      return;
+    }
+    const nextBundleSize = body.data.bundleSize ?? current.bundleSize;
+    const nextBundleUnit = body.data.bundleUnit ?? current.bundleUnit;
+    const nextMinStockUnit = body.data.minStockUnit ?? current.minStockUnit;
+    if (nextMinStockUnit === "bundle" && !nextBundleUnit.trim()) {
+      res.status(400).json({ error: "Enter a bundle unit before setting the minimum in bundles." });
+      return;
+    }
+    if (nextBundleSize <= 0) {
+      res.status(400).json({ error: "Bundle size must be greater than zero." });
       return;
     }
     const nextTempMinC =
