@@ -999,7 +999,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     ),
     [
       [secondRoomId, "Downtown Outlet"],
-      [secondOutletId, "Airport Outlet"],
+      [secondOutletId, "Airport Annex"],
     ],
   );
 
