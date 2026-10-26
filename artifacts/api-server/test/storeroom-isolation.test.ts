@@ -1366,6 +1366,11 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       "An upload URL cannot be requested for another outlet's count.",
     );
 
+    // The decision endpoint is for legacy pending requests; normal orders start as drafts.
+    await db
+      .update(purchaseOrdersTable)
+      .set({ status: "pending" })
+      .where(eq(purchaseOrdersTable.id, ownRecords.orderId));
     const approvedOrder = await api(
       userId,
       `/purchase-orders/${ownRecords.orderId}/decision`,
