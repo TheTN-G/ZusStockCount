@@ -43,6 +43,7 @@ let fixtureProductIds: number[] = [];
 let fixtureTransferIds: number[] = [];
 let fixtureOrderIds: number[] = [];
 let fixtureCountIds: number[] = [];
+let fixtureDeliveryIds: number[] = [];
 let fixtureUserIds = [
   legacyOwnerId,
   legacyStaffId,
@@ -258,6 +259,11 @@ after(async () => {
     await db
       .delete(stockTransfersTable)
       .where(inArray(stockTransfersTable.id, fixtureTransferIds));
+  }
+  if (fixtureDeliveryIds.length) {
+    await db
+      .delete(deliveriesTable)
+      .where(inArray(deliveriesTable.id, fixtureDeliveryIds));
   }
   if (fixtureOrderIds.length) {
     await db
@@ -2487,6 +2493,9 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     method: "POST",
     body: { lines: [{ productId: productA.id, quantity: 1 }] },
   });
+  if (Number.isSafeInteger(staffDelivery.data?.id)) {
+    fixtureDeliveryIds.push(staffDelivery.data.id);
+  }
   assert.equal(staffDelivery.response.status, 201, JSON.stringify(staffDelivery.data));
 
   const receiptAccessOrder = await api(legacyOwnerId, "/purchase-orders", {
@@ -2640,6 +2649,9 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       lines: [{ productId: productA.id, quantity: 0.1, tempC: 10 }],
     },
   });
+  if (Number.isSafeInteger(heldDelivery.data?.id)) {
+    fixtureDeliveryIds.push(heldDelivery.data.id);
+  }
   assert.equal(heldDelivery.response.status, 201, JSON.stringify(heldDelivery.data));
   assert.equal(heldDelivery.data.status, "pending_approval");
   await setStaffAccess(legacyRoomId, emptyStaffAccess);
@@ -2794,6 +2806,10 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   );
 
   await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    products: "view",
+  });
+  await setStaffAccess(auditSiblingOutletId, {
     ...emptyStaffAccess,
     products: "view",
   });
