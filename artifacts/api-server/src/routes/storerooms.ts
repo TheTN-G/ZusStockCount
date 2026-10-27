@@ -2,6 +2,9 @@ import { Router, type IRouter } from "express";
 import {
   CreateOutletBody,
   CreateOutletResponse,
+  RenameOutletBody,
+  RenameOutletParams,
+  RenameOutletResponse,
   UpdateOutletBody,
   UpdateOutletParams,
   UpdateOutletResponse,
@@ -66,6 +69,63 @@ router.post(
     });
 
     res.status(201).json(CreateOutletResponse.parse(result));
+  },
+);
+
+router.patch(
+  "/outlets/:outletId/name",
+  async (req, res): Promise<void> => {
+    const params = RenameOutletParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const body = RenameOutletBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
+    const name = body.data.name.trim();
+    if (!name || name.length > 80) {
+      res.status(400).json({ error: "Outlet name must be between 1 and 80 characters." });
+      return;
+    }
+
+    const [workspace] = await db
+      .select({ ownerUserId: workspacesTable.ownerUserId })
+      .from(workspacesTable)
+      .where(eq(workspacesTable.id, req.workspaceId!))
+      .limit(1);
+    if (!workspace || workspace.ownerUserId !== req.storeUser!.id) {
+      res.status(403).json({ error: "Only the workspace owner can rename outlets." });
+      return;
+    }
+
+    const [outlet] = await db
+      .update(storeroomsTable)
+      .set({ name })
+      .where(
+        and(
+          eq(storeroomsTable.id, params.data.outletId),
+          eq(storeroomsTable.workspaceId, req.workspaceId!),
+        ),
+      )
+      .returning();
+    if (!outlet) {
+      res.status(404).json({ error: "Outlet not found in this workspace." });
+      return;
+    }
+
+    res.json(
+      RenameOutletResponse.parse({
+        id: outlet.id,
+        name: outlet.name,
+        role: req.storeMembership!.role,
+        contactEmail: outlet.contactEmail,
+        contactPhone: outlet.contactPhone,
+        businessAddress: outlet.businessAddress,
+      }),
+    );
   },
 );
 

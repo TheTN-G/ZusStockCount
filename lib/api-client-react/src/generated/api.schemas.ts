@@ -33,15 +33,44 @@ export const StoreRole = {
   staff: 'staff',
 } as const;
 
+export type AccessLevel = typeof AccessLevel[keyof typeof AccessLevel];
+
+
+export const AccessLevel = {
+  none: 'none',
+  view: 'view',
+  edit: 'edit',
+} as const;
+
+export interface StoreAccess {
+  dashboard: AccessLevel;
+  receiving: AccessLevel;
+  deliveryRecords: AccessLevel;
+  products: AccessLevel;
+  suppliers: AccessLevel;
+  stockTransfers: AccessLevel;
+  purchaseOrders: AccessLevel;
+  approvals: AccessLevel;
+  activity: AccessLevel;
+  stockCount: AccessLevel;
+}
+
+export interface StoreAccessUpdate {
+  access: StoreAccess;
+}
+
 export type OrderStatus = typeof OrderStatus[keyof typeof OrderStatus];
 
 
 export const OrderStatus = {
+  draft: 'draft',
+  issued: 'issued',
   pending: 'pending',
   approved: 'approved',
   rejected: 'rejected',
   partially_received: 'partially_received',
   received: 'received',
+  cancelled: 'cancelled',
 } as const;
 
 export type CountStatus = typeof CountStatus[keyof typeof CountStatus];
@@ -55,9 +84,135 @@ export const CountStatus = {
 export interface StoreUser {
   id: string;
   name: string;
+  /** @nullable */
+  username: string | null;
   email: string;
   role: StoreRole;
   storeName: string;
+  mustChangePassword: boolean;
+  access: StoreAccess;
+}
+
+export interface AccountRegistrationInput {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  workspaceName: string;
+  /**
+     * @minLength 3
+     * @maxLength 32
+     * @pattern ^[A-Za-z0-9._-]{3,32}$
+     */
+  username: string;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  email?: string | null;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  password: string;
+}
+
+export interface PasswordSignInInput {
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
+  identifier: string;
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  password: string;
+}
+
+export interface AuthSession {
+  authenticated: true;
+  userId: string;
+  mustChangePassword: boolean;
+}
+
+export interface EmptyInput { [key: string]: unknown }
+
+export interface LegacyAccountCredentialsInput {
+  /**
+     * @minLength 3
+     * @maxLength 32
+     * @pattern ^[A-Za-z0-9._-]{3,32}$
+     */
+  username: string;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  password: string;
+}
+
+export interface StoreAccountInput {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  name: string;
+  /**
+     * @minLength 3
+     * @maxLength 32
+     * @pattern ^[A-Za-z0-9._-]{3,32}$
+     */
+  username: string;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  email?: string | null;
+  role: UserRole;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  temporaryPassword: string;
+  access?: StoreAccess;
+}
+
+export interface MyProfileInput {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  name: string;
+  /**
+     * @minLength 3
+     * @maxLength 32
+     * @pattern ^[A-Za-z0-9._-]{3,32}$
+     */
+  username: string;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  email: string | null;
+}
+
+export interface MyPasswordInput {
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  currentPassword?: string;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  newPassword: string;
 }
 
 export type StoreInvitationStatus = typeof StoreInvitationStatus[keyof typeof StoreInvitationStatus];
@@ -93,7 +248,7 @@ export interface CompletePasswordResetInput {
   token: string;
   /**
      * @minLength 8
-     * @maxLength 256
+     * @maxLength 128
      */
   password: string;
 }
@@ -107,13 +262,45 @@ export type SecurityEventEventType = typeof SecurityEventEventType[keyof typeof 
 
 export const SecurityEventEventType = {
   password_reset_link_created: 'password_reset_link_created',
+  staff_access_updated: 'staff_access_updated',
 } as const;
+
+export type SecurityEventChangedSectionsItemPreviousAccess = typeof SecurityEventChangedSectionsItemPreviousAccess[keyof typeof SecurityEventChangedSectionsItemPreviousAccess];
+
+
+export const SecurityEventChangedSectionsItemPreviousAccess = {
+  none: 'none',
+  view: 'view',
+  edit: 'edit',
+} as const;
+
+export type SecurityEventChangedSectionsItemNewAccess = typeof SecurityEventChangedSectionsItemNewAccess[keyof typeof SecurityEventChangedSectionsItemNewAccess];
+
+
+export const SecurityEventChangedSectionsItemNewAccess = {
+  none: 'none',
+  view: 'view',
+  edit: 'edit',
+} as const;
+
+export type SecurityEventChangedSectionsItem = {
+  section: string;
+  previousAccess: SecurityEventChangedSectionsItemPreviousAccess;
+  newAccess: SecurityEventChangedSectionsItemNewAccess;
+};
 
 export interface SecurityEvent {
   id: number;
   eventType: SecurityEventEventType;
+  /** @nullable */
+  actorUserId: string | null;
+  /** @nullable */
+  targetUserId: string | null;
+  storeroomId: number;
+  outletName: string;
   actorName: string;
   targetName: string;
+  changedSections: SecurityEventChangedSectionsItem[];
   createdAt: string;
 }
 
@@ -165,13 +352,18 @@ export interface OutletSummary {
 export interface CurrentUser {
   id: string;
   name: string;
+  /** @nullable */
+  username: string | null;
   email: string;
+  hasPassword: boolean;
+  mustChangePassword: boolean;
   role: StoreRole;
   storeName: string;
   activeStoreroomId: number;
   storerooms: StoreroomSummary[];
   workspace: WorkspaceSummary;
   activeOutletId: number;
+  access: StoreAccess;
   outlets: OutletSummary[];
 }
 
@@ -199,6 +391,14 @@ export interface OutletUpdate {
      * @nullable
      */
   businessAddress: string | null;
+}
+
+export interface OutletNameUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
 }
 
 export interface WorkspaceUpdate {
@@ -252,10 +452,38 @@ export interface WorkspaceSetupInput {
   firstOutletName: string;
 }
 
-export interface AddStoreMemberInput {
-  email: string;
-  role: UserRole;
+export type WorkspaceSetupValidationErrorFieldErrors = {
+  name?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  businessAddress?: string;
+  firstOutletName?: string;
+};
+
+export interface WorkspaceSetupValidationError {
+  error: string;
+  fieldErrors: WorkspaceSetupValidationErrorFieldErrors;
 }
+
+export interface AddStoreMemberInput {
+  email?: string;
+  /**
+     * @minLength 3
+     * @maxLength 32
+     * @pattern ^[A-Za-z0-9._-]{3,32}$
+     */
+  username?: string;
+  role: UserRole;
+  access?: StoreAccess;
+}
+
+export type ProductMinStockUnit = typeof ProductMinStockUnit[keyof typeof ProductMinStockUnit];
+
+
+export const ProductMinStockUnit = {
+  unit: 'unit',
+  bundle: 'bundle',
+} as const;
 
 export interface Product {
   id: number;
@@ -266,8 +494,12 @@ export interface Product {
   /** @nullable */
   defaultSectionId: number | null;
   unit: string;
+  bundleUnit: string;
   bundleSize: number;
   minStock: number;
+  minStockUnit: ProductMinStockUnit;
+  /** @nullable */
+  preferredSupplierId: number | null;
   stockOnHand: number;
   lowStock: boolean;
   active: boolean;
@@ -276,6 +508,23 @@ export interface Product {
   /** @nullable */
   tempMaxC: number | null;
 }
+
+export type ProductInputMinStockUnit = typeof ProductInputMinStockUnit[keyof typeof ProductInputMinStockUnit];
+
+
+export const ProductInputMinStockUnit = {
+  unit: 'unit',
+  bundle: 'bundle',
+} as const;
+
+export type ProductInputOpeningStock = {
+  /** @minimum 0 */
+  quantity: number;
+  /** @nullable */
+  sectionId?: number | null;
+  /** @nullable */
+  expiryDate?: string | null;
+};
 
 export interface ProductInput {
   /** @minLength 1 */
@@ -287,10 +536,16 @@ export interface ProductInput {
   defaultSectionId?: number | null;
   /** @minLength 1 */
   unit: string;
+  /** @minLength 1 */
+  bundleUnit?: string;
   /** @minimum 0.01 */
   bundleSize: number;
   /** @minimum 0 */
   minStock: number;
+  minStockUnit?: ProductInputMinStockUnit;
+  /** @nullable */
+  preferredSupplierId?: number | null;
+  openingStock?: ProductInputOpeningStock;
   /**
      * @minimum -60
      * @maximum 100
@@ -305,6 +560,14 @@ export interface ProductInput {
   tempMaxC?: number | null;
 }
 
+export type ProductUpdateMinStockUnit = typeof ProductUpdateMinStockUnit[keyof typeof ProductUpdateMinStockUnit];
+
+
+export const ProductUpdateMinStockUnit = {
+  unit: 'unit',
+  bundle: 'bundle',
+} as const;
+
 export interface ProductUpdate {
   /** @minLength 1 */
   name?: string;
@@ -315,10 +578,15 @@ export interface ProductUpdate {
   defaultSectionId?: number | null;
   /** @minLength 1 */
   unit?: string;
+  /** @minLength 1 */
+  bundleUnit?: string;
   /** @minimum 0.01 */
   bundleSize?: number;
   /** @minimum 0 */
   minStock?: number;
+  minStockUnit?: ProductUpdateMinStockUnit;
+  /** @nullable */
+  preferredSupplierId?: number | null;
   active?: boolean;
   /**
      * @minimum -60
@@ -591,6 +859,7 @@ export interface PurchaseOrderLine {
   quantity: number;
   receivedQuantity: number;
   unit: string;
+  conversionFactor: number;
 }
 
 export interface PurchaseOrderOutlet {
@@ -611,6 +880,12 @@ export interface PurchaseOrder {
   /** @nullable */
   reviewedBy?: string | null;
   /** @nullable */
+  orderNumber: string | null;
+  /** @nullable */
+  expectedDeliveryDate: string | null;
+  /** @nullable */
+  issuedAt: string | null;
+  /** @nullable */
   note?: string | null;
   /** @nullable */
   supplierId?: number | null;
@@ -621,17 +896,42 @@ export interface PurchaseOrder {
   lines: PurchaseOrderLine[];
 }
 
+export type PurchaseOrderLineInputUnitType = typeof PurchaseOrderLineInputUnitType[keyof typeof PurchaseOrderLineInputUnitType];
+
+
+export const PurchaseOrderLineInputUnitType = {
+  unit: 'unit',
+  bundle: 'bundle',
+} as const;
+
 export interface PurchaseOrderLineInput {
   productId: number;
   /** @minimum 0.01 */
   quantity: number;
+  unitType?: PurchaseOrderLineInputUnitType;
 }
 
 export interface PurchaseOrderInput {
   note?: string;
   /** @nullable */
   supplierId?: number | null;
+  /** @nullable */
+  expectedDeliveryDate?: string | null;
   /** @minItems 1 */
+  lines: PurchaseOrderLineInput[];
+}
+
+export interface PurchaseOrderUpdateInput {
+  /** @nullable */
+  supplierId: number | null;
+  /** @nullable */
+  expectedDeliveryDate: string | null;
+  /** @nullable */
+  note: string | null;
+  /**
+     * @minItems 1
+     * @maxItems 100
+     */
   lines: PurchaseOrderLineInput[];
 }
 
@@ -654,6 +954,8 @@ export interface ReceiptLineInput {
   receivedQuantity: number;
   /** @nullable */
   expiryDate?: string | null;
+  /** @nullable */
+  sectionId?: number | null;
 }
 
 export interface ReceiptInput {
@@ -688,6 +990,10 @@ export interface DeliveryLine {
   tempC: number | null;
   /** @nullable */
   expiryDate: string | null;
+  /** @nullable */
+  sectionId: number | null;
+  /** @nullable */
+  sectionName: string | null;
   checkStatus: DeliveryLineCheckStatus;
   /** @nullable */
   issue: string | null;
@@ -702,6 +1008,8 @@ export interface Delivery {
   supplierName: string | null;
   /** @nullable */
   purchaseOrderId: number | null;
+  /** @nullable */
+  purchaseOrderNumber: string | null;
   recordedBy: string;
   /** @nullable */
   decidedBy: string | null;
@@ -723,6 +1031,8 @@ export interface DeliveryLineInput {
   tempC?: number | null;
   /** @nullable */
   expiryDate?: string | null;
+  /** @nullable */
+  sectionId?: number | null;
 }
 
 export interface DeliveryInput {
@@ -766,6 +1076,27 @@ export interface StockCountLine {
   sectionName: string | null;
 }
 
+export interface StockCountWorkbook {
+  name: string;
+  uploadedBy: string;
+  submittedAt: string;
+}
+
+export interface StockCountMovement {
+  id: number;
+  productId: number;
+  productName: string;
+  /** @nullable */
+  sectionId: number | null;
+  /** @nullable */
+  sectionName: string | null;
+  type: string;
+  quantityDelta: number;
+  reason: string;
+  actor: string;
+  occurredAt: string;
+}
+
 export interface StockCount {
   id: number;
   scope: string;
@@ -774,7 +1105,33 @@ export interface StockCount {
   createdAt: string;
   /** @nullable */
   completedAt?: string | null;
+  workbook: StockCountWorkbook | null;
   lines: StockCountLine[];
+  /** Inventory movements recorded after this count began, included on count detail responses. */
+  movements?: StockCountMovement[];
+}
+
+export interface StockCountWorkbookUploadRequest {
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  name: string;
+  /**
+     * @minimum 1
+     * @maximum 5242880
+     */
+  size: number;
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  contentType: string;
+}
+
+export interface StockCountWorkbookUploadUrl {
+  uploadURL: string;
+  objectPath: string;
 }
 
 export type StockCountInputScope = typeof StockCountInputScope[keyof typeof StockCountInputScope];
@@ -782,12 +1139,14 @@ export type StockCountInputScope = typeof StockCountInputScope[keyof typeof Stoc
 
 export const StockCountInputScope = {
   all: 'all',
+  section: 'section',
   category: 'category',
   product: 'product',
 } as const;
 
 export interface StockCountInput {
   scope: StockCountInputScope;
+  sectionId?: number;
   category?: ProductCategory;
   productId?: number;
 }
@@ -802,6 +1161,15 @@ export interface StockCountLineInput {
 export interface StockCountSubmission {
   /** @minItems 1 */
   lines: StockCountLineInput[];
+  /** IDs of post-start movements shown to and acknowledged by the reviewer. */
+  acknowledgedMovementIds: number[];
+  /** @maxLength 512 */
+  workbookObjectPath?: string;
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  workbookName?: string;
 }
 
 export type MovementType = typeof MovementType[keyof typeof MovementType];
@@ -880,6 +1248,20 @@ status?: OrderStatus;
 export type ListStockMovementsParams = {
 productId?: number;
 /**
+ * Inclusive ISO 8601 start timestamp for the requested period.
+ */
+dateFrom?: string;
+/**
+ * Exclusive ISO 8601 end timestamp for the requested period.
+ */
+dateTo?: string;
+/**
+ * Match the historical stock-section label recorded on the movement.
+ */
+sectionName?: string;
+type?: MovementType;
+/**
+ * Omit to return all matching movements.
  * @minimum 1
  * @maximum 100
  */

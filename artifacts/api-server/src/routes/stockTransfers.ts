@@ -29,12 +29,25 @@ import {
 } from "@workspace/db";
 import { ApiError } from "../lib/api-error";
 import { ensureDefaultStockSection } from "../lib/catalogue-data";
+import { effectiveStoreAccess } from "../lib/storeAccess";
 import { requireRoles } from "../middlewares/storeUser";
 
 const router: IRouter = Router();
 const transferRoles = ["owner", "admin", "supervisor"];
 const epsilon = 0.001;
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function canManageTransfers(membership: {
+  role: string;
+  permissions: unknown;
+}): boolean {
+  return (
+    transferRoles.includes(membership.role) ||
+    (membership.role === "staff" &&
+      effectiveStoreAccess("staff", membership.permissions).stockTransfers ===
+        "edit")
+  );
+}
 
 function toStockTransferResponse(
   transfer: typeof stockTransfersTable.$inferSelect,
@@ -141,7 +154,7 @@ router.get("/stock-transfers/options", async (req, res): Promise<void> => {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  if (!transferRoles.includes(req.storeMembership!.role)) {
+  if (!canManageTransfers(req.storeMembership!)) {
     res.status(403).json({ error: "You do not have permission to prepare stock transfers." });
     return;
   }
@@ -156,7 +169,7 @@ router.get("/stock-transfers/options", async (req, res): Promise<void> => {
       if (!destinationAccess) {
         throw new ApiError(404, "Destination outlet is not available in this workspace.");
       }
-      if (!transferRoles.includes(destinationAccess.membership.role)) {
+      if (!canManageTransfers(destinationAccess.membership)) {
         throw new ApiError(403, "You need manager access at both outlets to view transfer stock options.");
       }
       await ensureDefaultStockSection(tx, req.storeroomId!);
@@ -268,7 +281,7 @@ router.post(
       return;
     }
     if (
-      !transferRoles.includes(req.storeMembership!.role) ||
+      !canManageTransfers(req.storeMembership!) ||
       body.data.quantity <= 0 ||
       !Number.isFinite(body.data.quantity)
     ) {
@@ -305,7 +318,7 @@ router.post(
         if (!destinationAccess) {
           throw new ApiError(404, "Destination outlet is not available in this workspace.");
         }
-        if (!transferRoles.includes(destinationAccess.membership.role)) {
+        if (!canManageTransfers(destinationAccess.membership)) {
           throw new ApiError(403, "You need manager access at both outlets to transfer stock.");
         }
 

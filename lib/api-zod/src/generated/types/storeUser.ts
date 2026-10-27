@@ -5,12 +5,17 @@
  * REST API for ZUS Store Stock
  * OpenAPI spec version: 0.1.0
  */
+import type { StoreAccess } from './storeAccess';
 import type { StoreRole } from './storeRole';
 
 export interface StoreUser {
   id: string;
   name: string;
+  /** @nullable */
+  username: string | null;
   email: string;
   role: StoreRole;
   storeName: string;
+  mustChangePassword: boolean;
+  access: StoreAccess;
 }

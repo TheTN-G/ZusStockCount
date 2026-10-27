@@ -5,9 +5,11 @@
  * REST API for ZUS Store Stock
  * OpenAPI spec version: 0.1.0
  */
+import type { PurchaseOrderLineInputUnitType } from './purchaseOrderLineInputUnitType';
 
 export interface PurchaseOrderLineInput {
   productId: number;
   /** @minimum 0.01 */
   quantity: number;
+  unitType?: PurchaseOrderLineInputUnitType;
 }

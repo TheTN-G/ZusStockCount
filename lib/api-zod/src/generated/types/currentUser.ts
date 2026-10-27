@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OutletSummary } from './outletSummary';
+import type { StoreAccess } from './storeAccess';
 import type { StoreRole } from './storeRole';
 import type { StoreroomSummary } from './storeroomSummary';
 import type { WorkspaceSummary } from './workspaceSummary';
@@ -13,12 +14,17 @@ import type { WorkspaceSummary } from './workspaceSummary';
 export interface CurrentUser {
   id: string;
   name: string;
+  /** @nullable */
+  username: string | null;
   email: string;
+  hasPassword: boolean;
+  mustChangePassword: boolean;
   role: StoreRole;
   storeName: string;
   activeStoreroomId: number;
   storerooms: StoreroomSummary[];
   workspace: WorkspaceSummary;
   activeOutletId: number;
+  access: StoreAccess;
   outlets: OutletSummary[];
 }

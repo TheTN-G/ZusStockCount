@@ -16,6 +16,12 @@ export interface PurchaseOrder {
   /** @nullable */
   reviewedBy?: string | null;
   /** @nullable */
+  orderNumber: string | null;
+  /** @nullable */
+  expectedDeliveryDate: Date | null;
+  /** @nullable */
+  issuedAt: Date | null;
+  /** @nullable */
   note?: string | null;
   /** @nullable */
   supplierId?: number | null;

@@ -18,12 +18,99 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * @summary Get the signed-in user's store profile and role
+ * Creates an account with username and password, then starts a signed-in session. Email is optional.
+ * @summary Register an owner workspace account
  */
-export const GetCurrentUserResponse = zod.object({
+export const registerAccountBodyNameMax = 120;
+
+export const registerAccountBodyWorkspaceNameMax = 80;
+
+export const registerAccountBodyUsernameMin = 3;
+export const registerAccountBodyUsernameMax = 32;
+
+
+export const registerAccountBodyUsernameRegExp = new RegExp('^[A-Za-z0-9._-]{3,32}$');
+export const registerAccountBodyEmailMax = 320;
+
+export const registerAccountBodyPasswordMin = 8;
+export const registerAccountBodyPasswordMax = 128;
+
+
+
+export const RegisterAccountBody = zod.object({
+  "name": zod.string().min(1).max(registerAccountBodyNameMax),
+  "workspaceName": zod.string().min(1).max(registerAccountBodyWorkspaceNameMax),
+  "username": zod.string().min(registerAccountBodyUsernameMin).max(registerAccountBodyUsernameMax).regex(registerAccountBodyUsernameRegExp),
+  "email": zod.string().email().max(registerAccountBodyEmailMax).nullish(),
+  "password": zod.string().min(registerAccountBodyPasswordMin).max(registerAccountBodyPasswordMax)
+})
+
+export const RegisterAccountResponse = zod.object({
+  "authenticated": zod.literal(true),
+  "userId": zod.string(),
+  "mustChangePassword": zod.boolean()
+})
+
+
+/**
+ * @summary Sign in with username or email and password
+ */
+export const signInWithPasswordBodyIdentifierMin = 3;
+export const signInWithPasswordBodyIdentifierMax = 320;
+
+export const signInWithPasswordBodyPasswordMax = 128;
+
+
+
+export const SignInWithPasswordBody = zod.object({
+  "identifier": zod.string().min(signInWithPasswordBodyIdentifierMin).max(signInWithPasswordBodyIdentifierMax),
+  "password": zod.string().min(1).max(signInWithPasswordBodyPasswordMax)
+})
+
+export const SignInWithPasswordResponse = zod.object({
+  "authenticated": zod.literal(true),
+  "userId": zod.string(),
+  "mustChangePassword": zod.boolean()
+})
+
+
+/**
+ * @summary Sign out and revoke the active session
+ */
+export const SignOutAccountBody = zod.object({
+
+})
+
+export const SignOutAccountResponse = zod.object({
+  "complete": zod.literal(true)
+})
+
+
+/**
+ * @summary Add username and password sign-in to an existing signed-in account
+ */
+export const migrateLegacyAccountBodyUsernameMin = 3;
+export const migrateLegacyAccountBodyUsernameMax = 32;
+
+
+export const migrateLegacyAccountBodyUsernameRegExp = new RegExp('^[A-Za-z0-9._-]{3,32}$');
+export const migrateLegacyAccountBodyPasswordMin = 8;
+export const migrateLegacyAccountBodyPasswordMax = 128;
+
+
+
+export const MigrateLegacyAccountBody = zod.object({
+  "username": zod.string().min(migrateLegacyAccountBodyUsernameMin).max(migrateLegacyAccountBodyUsernameMax).regex(migrateLegacyAccountBodyUsernameRegExp),
+  "password": zod.string().min(migrateLegacyAccountBodyPasswordMin).max(migrateLegacyAccountBodyPasswordMax)
+})
+
+export const MigrateLegacyAccountResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
+  "username": zod.string().nullable(),
   "email": zod.string(),
+  "hasPassword": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
   "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
   "storeName": zod.string(),
   "activeStoreroomId": zod.number().int(),
@@ -42,6 +129,18 @@ export const GetCurrentUserResponse = zod.object({
   "isOwner": zod.boolean()
 }),
   "activeOutletId": zod.number().int(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+}),
   "outlets": zod.array(zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
@@ -50,6 +149,205 @@ export const GetCurrentUserResponse = zod.object({
   "contactPhone": zod.string().nullable(),
   "businessAddress": zod.string().nullable()
 }))
+})
+
+
+/**
+ * @summary Get the signed-in user's store profile and role
+ */
+export const GetCurrentUserResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "username": zod.string().nullable(),
+  "email": zod.string(),
+  "hasPassword": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
+  "storeName": zod.string(),
+  "activeStoreroomId": zod.number().int(),
+  "storerooms": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff'])
+})),
+  "workspace": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable(),
+  "setupComplete": zod.boolean(),
+  "isOwner": zod.boolean()
+}),
+  "activeOutletId": zod.number().int(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+}),
+  "outlets": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Create a teammate account with a temporary password
+ */
+export const createStoreAccountBodyNameMax = 120;
+
+export const createStoreAccountBodyUsernameMin = 3;
+export const createStoreAccountBodyUsernameMax = 32;
+
+
+export const createStoreAccountBodyUsernameRegExp = new RegExp('^[A-Za-z0-9._-]{3,32}$');
+export const createStoreAccountBodyEmailMax = 320;
+
+export const createStoreAccountBodyTemporaryPasswordMin = 8;
+export const createStoreAccountBodyTemporaryPasswordMax = 128;
+
+
+
+export const CreateStoreAccountBody = zod.object({
+  "name": zod.string().min(1).max(createStoreAccountBodyNameMax),
+  "username": zod.string().min(createStoreAccountBodyUsernameMin).max(createStoreAccountBodyUsernameMax).regex(createStoreAccountBodyUsernameRegExp),
+  "email": zod.string().email().max(createStoreAccountBodyEmailMax).nullish(),
+  "role": zod.enum(['staff', 'supervisor', 'admin']),
+  "temporaryPassword": zod.string().min(createStoreAccountBodyTemporaryPasswordMin).max(createStoreAccountBodyTemporaryPasswordMax),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+}).optional()
+})
+
+export const CreateStoreAccountResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "username": zod.string().nullable(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
+  "storeName": zod.string(),
+  "mustChangePassword": zod.boolean(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+})
+})
+
+
+/**
+ * @summary Update the signed-in user's name, username, or optional email
+ */
+export const updateMyProfileBodyNameMax = 120;
+
+export const updateMyProfileBodyUsernameMin = 3;
+export const updateMyProfileBodyUsernameMax = 32;
+
+
+export const updateMyProfileBodyUsernameRegExp = new RegExp('^[A-Za-z0-9._-]{3,32}$');
+export const updateMyProfileBodyEmailMax = 320;
+
+
+
+export const UpdateMyProfileBody = zod.object({
+  "name": zod.string().min(1).max(updateMyProfileBodyNameMax),
+  "username": zod.string().min(updateMyProfileBodyUsernameMin).max(updateMyProfileBodyUsernameMax).regex(updateMyProfileBodyUsernameRegExp),
+  "email": zod.string().email().max(updateMyProfileBodyEmailMax).nullable()
+})
+
+export const UpdateMyProfileResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "username": zod.string().nullable(),
+  "email": zod.string(),
+  "hasPassword": zod.boolean(),
+  "mustChangePassword": zod.boolean(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
+  "storeName": zod.string(),
+  "activeStoreroomId": zod.number().int(),
+  "storerooms": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff'])
+})),
+  "workspace": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable(),
+  "setupComplete": zod.boolean(),
+  "isOwner": zod.boolean()
+}),
+  "activeOutletId": zod.number().int(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+}),
+  "outlets": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Change the signed-in user's password
+ */
+export const changeMyPasswordBodyCurrentPasswordMax = 128;
+
+export const changeMyPasswordBodyNewPasswordMin = 8;
+export const changeMyPasswordBodyNewPasswordMax = 128;
+
+
+
+export const ChangeMyPasswordBody = zod.object({
+  "currentPassword": zod.string().min(1).max(changeMyPasswordBodyCurrentPasswordMax).optional(),
+  "newPassword": zod.string().min(changeMyPasswordBodyNewPasswordMin).max(changeMyPasswordBodyNewPasswordMax)
+})
+
+export const ChangeMyPasswordResponse = zod.object({
+  "complete": zod.literal(true)
 })
 
 
@@ -99,6 +397,34 @@ export const UpdateOutletBody = zod.object({
 })
 
 export const UpdateOutletResponse = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable()
+})
+
+
+/**
+ * @summary Rename an outlet in the signed-in owner's workspace
+ */
+
+
+
+export const RenameOutletParams = zod.object({
+  "outletId": zod.coerce.number().int().min(1)
+})
+
+export const renameOutletBodyNameMax = 80;
+
+
+
+export const RenameOutletBody = zod.object({
+  "name": zod.string().min(1).max(renameOutletBodyNameMax)
+})
+
+export const RenameOutletResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
@@ -179,9 +505,23 @@ export const CompleteWorkspaceSetupResponse = zod.object({
 export const ListStoreUsersResponseItem = zod.object({
   "id": zod.string(),
   "name": zod.string(),
+  "username": zod.string().nullable(),
   "email": zod.string(),
   "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
-  "storeName": zod.string()
+  "storeName": zod.string(),
+  "mustChangePassword": zod.boolean(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+})
 })
 export const ListStoreUsersResponse = zod.array(ListStoreUsersResponseItem)
 
@@ -189,17 +529,51 @@ export const ListStoreUsersResponse = zod.array(ListStoreUsersResponseItem)
 /**
  * @summary Add an existing account to the active storeroom
  */
+export const addStoreMemberBodyUsernameMin = 3;
+export const addStoreMemberBodyUsernameMax = 32;
+
+
+export const addStoreMemberBodyUsernameRegExp = new RegExp('^[A-Za-z0-9._-]{3,32}$');
+
+
 export const AddStoreMemberBody = zod.object({
-  "email": zod.string().email(),
-  "role": zod.enum(['staff', 'supervisor', 'admin'])
+  "email": zod.string().email().optional(),
+  "username": zod.string().min(addStoreMemberBodyUsernameMin).max(addStoreMemberBodyUsernameMax).regex(addStoreMemberBodyUsernameRegExp).optional(),
+  "role": zod.enum(['staff', 'supervisor', 'admin']),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+}).optional()
 })
 
 export const AddStoreMemberResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
+  "username": zod.string().nullable(),
   "email": zod.string(),
   "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
-  "storeName": zod.string()
+  "storeName": zod.string(),
+  "mustChangePassword": zod.boolean(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+})
 })
 
 
@@ -290,7 +664,7 @@ export const completeStoreUserPasswordResetBodyTokenMin = 40;
 export const completeStoreUserPasswordResetBodyTokenMax = 256;
 
 export const completeStoreUserPasswordResetBodyPasswordMin = 8;
-export const completeStoreUserPasswordResetBodyPasswordMax = 256;
+export const completeStoreUserPasswordResetBodyPasswordMax = 128;
 
 
 
@@ -309,9 +683,18 @@ export const CompleteStoreUserPasswordResetResponse = zod.object({
  */
 export const ListStoreSecurityEventsResponseItem = zod.object({
   "id": zod.number().int(),
-  "eventType": zod.enum(['password_reset_link_created']),
+  "eventType": zod.enum(['password_reset_link_created', 'staff_access_updated']),
+  "actorUserId": zod.string().nullable(),
+  "targetUserId": zod.string().nullable(),
+  "storeroomId": zod.number().int(),
+  "outletName": zod.string(),
   "actorName": zod.string(),
   "targetName": zod.string(),
+  "changedSections": zod.array(zod.object({
+  "section": zod.string(),
+  "previousAccess": zod.enum(['none', 'view', 'edit']),
+  "newAccess": zod.enum(['none', 'view', 'edit'])
+})),
   "createdAt": zod.coerce.date()
 })
 export const ListStoreSecurityEventsResponse = zod.array(ListStoreSecurityEventsResponseItem)
@@ -363,8 +746,11 @@ export const ListProductsResponseItem = zod.object({
   "category": zod.string().min(1),
   "defaultSectionId": zod.number().int().nullable(),
   "unit": zod.string(),
+  "bundleUnit": zod.string(),
   "bundleSize": zod.number(),
   "minStock": zod.number(),
+  "minStockUnit": zod.enum(['unit', 'bundle']),
+  "preferredSupplierId": zod.number().int().nullable(),
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
@@ -380,9 +766,12 @@ export const ListProductsResponse = zod.array(ListProductsResponseItem)
 
 
 
+
 export const createProductBodyBundleSizeMin = 0.01;
 
 export const createProductBodyMinStockMin = 0;
+
+export const createProductBodyOpeningStockQuantityMin = 0;
 
 export const createProductBodyTempMinCMin = -60;
 export const createProductBodyTempMinCMax = 100;
@@ -398,8 +787,16 @@ export const CreateProductBody = zod.object({
   "category": zod.string().min(1),
   "defaultSectionId": zod.number().int().nullish(),
   "unit": zod.string().min(1),
+  "bundleUnit": zod.string().min(1).optional(),
   "bundleSize": zod.number().min(createProductBodyBundleSizeMin),
   "minStock": zod.number().min(createProductBodyMinStockMin),
+  "minStockUnit": zod.enum(['unit', 'bundle']).optional(),
+  "preferredSupplierId": zod.number().int().nullish(),
+  "openingStock": zod.object({
+  "quantity": zod.number().min(createProductBodyOpeningStockQuantityMin),
+  "sectionId": zod.number().int().nullish(),
+  "expiryDate": zod.coerce.date().nullish()
+}).optional(),
   "tempMinC": zod.number().min(createProductBodyTempMinCMin).max(createProductBodyTempMinCMax).nullish(),
   "tempMaxC": zod.number().min(createProductBodyTempMaxCMin).max(createProductBodyTempMaxCMax).nullish()
 })
@@ -414,8 +811,11 @@ export const CreateProductResponse = zod.object({
   "category": zod.string().min(1),
   "defaultSectionId": zod.number().int().nullable(),
   "unit": zod.string(),
+  "bundleUnit": zod.string(),
   "bundleSize": zod.number(),
   "minStock": zod.number(),
+  "minStockUnit": zod.enum(['unit', 'bundle']),
+  "preferredSupplierId": zod.number().int().nullable(),
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
@@ -441,8 +841,11 @@ export const GetProductResponse = zod.object({
   "category": zod.string().min(1),
   "defaultSectionId": zod.number().int().nullable(),
   "unit": zod.string(),
+  "bundleUnit": zod.string(),
   "bundleSize": zod.number(),
   "minStock": zod.number(),
+  "minStockUnit": zod.enum(['unit', 'bundle']),
+  "preferredSupplierId": zod.number().int().nullable(),
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
@@ -457,6 +860,7 @@ export const GetProductResponse = zod.object({
 export const UpdateProductParams = zod.object({
   "productId": zod.coerce.number().int()
 })
+
 
 
 
@@ -479,8 +883,11 @@ export const UpdateProductBody = zod.object({
   "category": zod.string().min(1).optional(),
   "defaultSectionId": zod.number().int().nullish(),
   "unit": zod.string().min(1).optional(),
+  "bundleUnit": zod.string().min(1).optional(),
   "bundleSize": zod.number().min(updateProductBodyBundleSizeMin).optional(),
   "minStock": zod.number().min(updateProductBodyMinStockMin).optional(),
+  "minStockUnit": zod.enum(['unit', 'bundle']).optional(),
+  "preferredSupplierId": zod.number().int().nullish(),
   "active": zod.boolean().optional(),
   "tempMinC": zod.number().min(updateProductBodyTempMinCMin).max(updateProductBodyTempMinCMax).nullish(),
   "tempMaxC": zod.number().min(updateProductBodyTempMaxCMin).max(updateProductBodyTempMaxCMax).nullish()
@@ -496,8 +903,11 @@ export const UpdateProductResponse = zod.object({
   "category": zod.string().min(1),
   "defaultSectionId": zod.number().int().nullable(),
   "unit": zod.string(),
+  "bundleUnit": zod.string(),
   "bundleSize": zod.number(),
   "minStock": zod.number(),
+  "minStockUnit": zod.enum(['unit', 'bundle']),
+  "preferredSupplierId": zod.number().int().nullable(),
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
@@ -959,17 +1369,20 @@ export const CreateStockAdjustmentResponse = zod.object({
 
 
 /**
- * @summary List store purchase requests and their lines
+ * @summary List outlet purchase orders and their lines
  */
 export const ListPurchaseOrdersQueryParams = zod.object({
-  "status": zod.enum(['pending', 'approved', 'rejected', 'partially_received', 'received']).optional()
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']).optional()
 })
 
 export const ListPurchaseOrdersResponseItem = zod.object({
   "id": zod.number().int(),
-  "status": zod.enum(['pending', 'approved', 'rejected', 'partially_received', 'received']),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
   "requestedBy": zod.string(),
   "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
   "note": zod.string().nullish(),
   "supplierId": zod.number().int().nullish(),
   "supplierName": zod.string().nullish(),
@@ -986,14 +1399,15 @@ export const ListPurchaseOrdersResponseItem = zod.object({
   "productName": zod.string(),
   "quantity": zod.number(),
   "receivedQuantity": zod.number(),
-  "unit": zod.string()
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
 }))
 })
 export const ListPurchaseOrdersResponse = zod.array(ListPurchaseOrdersResponseItem)
 
 
 /**
- * @summary Submit a purchase request for approval
+ * @summary Save a purchase-order draft
  */
 export const createPurchaseOrderBodyLinesItemQuantityMin = 0.01;
 
@@ -1003,17 +1417,22 @@ export const createPurchaseOrderBodyLinesItemQuantityMin = 0.01;
 export const CreatePurchaseOrderBody = zod.object({
   "note": zod.string().optional(),
   "supplierId": zod.number().int().nullish(),
+  "expectedDeliveryDate": zod.coerce.date().nullish(),
   "lines": zod.array(zod.object({
   "productId": zod.number().int(),
-  "quantity": zod.number().min(createPurchaseOrderBodyLinesItemQuantityMin)
+  "quantity": zod.number().min(createPurchaseOrderBodyLinesItemQuantityMin),
+  "unitType": zod.enum(['unit', 'bundle']).optional()
 })).min(1)
 })
 
 export const CreatePurchaseOrderResponse = zod.object({
   "id": zod.number().int(),
-  "status": zod.enum(['pending', 'approved', 'rejected', 'partially_received', 'received']),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
   "requestedBy": zod.string(),
   "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
   "note": zod.string().nullish(),
   "supplierId": zod.number().int().nullish(),
   "supplierName": zod.string().nullish(),
@@ -1030,13 +1449,176 @@ export const CreatePurchaseOrderResponse = zod.object({
   "productName": zod.string(),
   "quantity": zod.number(),
   "receivedQuantity": zod.number(),
-  "unit": zod.string()
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
 }))
 })
 
 
 /**
- * @summary Approve or reject a purchase request
+ * @summary Create editable purchase-order drafts for uncovered low stock
+ */
+export const CreateLowStockPurchaseOrderDraftsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
+  "requestedBy": zod.string(),
+  "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
+  "note": zod.string().nullish(),
+  "supplierId": zod.number().int().nullish(),
+  "supplierName": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "outlet": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable()
+}),
+  "lines": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "quantity": zod.number(),
+  "receivedQuantity": zod.number(),
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
+}))
+})
+export const CreateLowStockPurchaseOrderDraftsResponse = zod.array(CreateLowStockPurchaseOrderDraftsResponseItem)
+
+
+/**
+ * @summary Edit a purchase-order draft
+ */
+export const UpdatePurchaseOrderDraftParams = zod.object({
+  "orderId": zod.coerce.number().int()
+})
+
+export const updatePurchaseOrderDraftBodyLinesItemQuantityMin = 0.01;
+
+export const updatePurchaseOrderDraftBodyLinesMax = 100;
+
+
+
+export const UpdatePurchaseOrderDraftBody = zod.object({
+  "supplierId": zod.number().int().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "note": zod.string().nullable(),
+  "lines": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "quantity": zod.number().min(updatePurchaseOrderDraftBodyLinesItemQuantityMin),
+  "unitType": zod.enum(['unit', 'bundle']).optional()
+})).min(1).max(updatePurchaseOrderDraftBodyLinesMax)
+})
+
+export const UpdatePurchaseOrderDraftResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
+  "requestedBy": zod.string(),
+  "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
+  "note": zod.string().nullish(),
+  "supplierId": zod.number().int().nullish(),
+  "supplierName": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "outlet": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable()
+}),
+  "lines": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "quantity": zod.number(),
+  "receivedQuantity": zod.number(),
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
+}))
+})
+
+
+/**
+ * @summary Confirm a draft and assign its monthly PO number
+ */
+export const IssuePurchaseOrderParams = zod.object({
+  "orderId": zod.coerce.number().int()
+})
+
+export const IssuePurchaseOrderResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
+  "requestedBy": zod.string(),
+  "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
+  "note": zod.string().nullish(),
+  "supplierId": zod.number().int().nullish(),
+  "supplierName": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "outlet": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable()
+}),
+  "lines": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "quantity": zod.number(),
+  "receivedQuantity": zod.number(),
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
+}))
+})
+
+
+/**
+ * @summary Cancel a draft or issued purchase order
+ */
+export const CancelPurchaseOrderParams = zod.object({
+  "orderId": zod.coerce.number().int()
+})
+
+export const CancelPurchaseOrderResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
+  "requestedBy": zod.string(),
+  "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
+  "note": zod.string().nullish(),
+  "supplierId": zod.number().int().nullish(),
+  "supplierName": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "outlet": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "contactEmail": zod.string().email().nullable(),
+  "contactPhone": zod.string().nullable(),
+  "businessAddress": zod.string().nullable()
+}),
+  "lines": zod.array(zod.object({
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "quantity": zod.number(),
+  "receivedQuantity": zod.number(),
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
+}))
+})
+
+
+/**
+ * @summary Approve or reject a legacy purchase request
  */
 export const DecidePurchaseOrderParams = zod.object({
   "orderId": zod.coerce.number().int()
@@ -1049,9 +1631,12 @@ export const DecidePurchaseOrderBody = zod.object({
 
 export const DecidePurchaseOrderResponse = zod.object({
   "id": zod.number().int(),
-  "status": zod.enum(['pending', 'approved', 'rejected', 'partially_received', 'received']),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
   "requestedBy": zod.string(),
   "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
   "note": zod.string().nullish(),
   "supplierId": zod.number().int().nullish(),
   "supplierName": zod.string().nullish(),
@@ -1068,13 +1653,14 @@ export const DecidePurchaseOrderResponse = zod.object({
   "productName": zod.string(),
   "quantity": zod.number(),
   "receivedQuantity": zod.number(),
-  "unit": zod.string()
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
 }))
 })
 
 
 /**
- * @summary Record a full or partial delivery
+ * @summary Record a full or partial purchase-order receipt
  */
 export const ReceivePurchaseOrderParams = zod.object({
   "orderId": zod.coerce.number().int()
@@ -1090,15 +1676,19 @@ export const ReceivePurchaseOrderBody = zod.object({
   "lines": zod.array(zod.object({
   "productId": zod.number().int(),
   "receivedQuantity": zod.number().min(receivePurchaseOrderBodyLinesItemReceivedQuantityMin),
-  "expiryDate": zod.coerce.date().nullish()
+  "expiryDate": zod.coerce.date().nullish(),
+  "sectionId": zod.number().int().nullish()
 })).min(1)
 })
 
 export const ReceivePurchaseOrderResponse = zod.object({
   "id": zod.number().int(),
-  "status": zod.enum(['pending', 'approved', 'rejected', 'partially_received', 'received']),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
   "requestedBy": zod.string(),
   "reviewedBy": zod.string().nullish(),
+  "orderNumber": zod.string().nullable(),
+  "expectedDeliveryDate": zod.coerce.date().nullable(),
+  "issuedAt": zod.coerce.date().nullable(),
   "note": zod.string().nullish(),
   "supplierId": zod.number().int().nullish(),
   "supplierName": zod.string().nullish(),
@@ -1115,7 +1705,8 @@ export const ReceivePurchaseOrderResponse = zod.object({
   "productName": zod.string(),
   "quantity": zod.number(),
   "receivedQuantity": zod.number(),
-  "unit": zod.string()
+  "unit": zod.string(),
+  "conversionFactor": zod.number()
 }))
 })
 
@@ -1129,6 +1720,7 @@ export const ListDeliveriesResponseItem = zod.object({
   "supplierId": zod.number().int().nullable(),
   "supplierName": zod.string().nullable(),
   "purchaseOrderId": zod.number().int().nullable(),
+  "purchaseOrderNumber": zod.string().nullable(),
   "recordedBy": zod.string(),
   "decidedBy": zod.string().nullable(),
   "decisionNote": zod.string().nullable(),
@@ -1139,6 +1731,8 @@ export const ListDeliveriesResponseItem = zod.object({
   "quantity": zod.number(),
   "tempC": zod.number().nullable(),
   "expiryDate": zod.coerce.date().nullable(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable(),
   "checkStatus": zod.enum(['pass', 'review']),
   "issue": zod.string().nullable()
 }))
@@ -1165,7 +1759,8 @@ export const CreateDeliveryBody = zod.object({
   "productId": zod.number().int(),
   "quantity": zod.number().gt(createDeliveryBodyLinesItemQuantityExclusiveMin),
   "tempC": zod.number().min(createDeliveryBodyLinesItemTempCMin).max(createDeliveryBodyLinesItemTempCMax).nullish(),
-  "expiryDate": zod.coerce.date().nullish()
+  "expiryDate": zod.coerce.date().nullish(),
+  "sectionId": zod.number().int().nullish()
 })).min(1).max(createDeliveryBodyLinesMax)
 })
 
@@ -1175,6 +1770,7 @@ export const CreateDeliveryResponse = zod.object({
   "supplierId": zod.number().int().nullable(),
   "supplierName": zod.string().nullable(),
   "purchaseOrderId": zod.number().int().nullable(),
+  "purchaseOrderNumber": zod.string().nullable(),
   "recordedBy": zod.string(),
   "decidedBy": zod.string().nullable(),
   "decisionNote": zod.string().nullable(),
@@ -1185,6 +1781,8 @@ export const CreateDeliveryResponse = zod.object({
   "quantity": zod.number(),
   "tempC": zod.number().nullable(),
   "expiryDate": zod.coerce.date().nullable(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable(),
   "checkStatus": zod.enum(['pass', 'review']),
   "issue": zod.string().nullable()
 }))
@@ -1213,6 +1811,7 @@ export const DecideDeliveryResponse = zod.object({
   "supplierId": zod.number().int().nullable(),
   "supplierName": zod.string().nullable(),
   "purchaseOrderId": zod.number().int().nullable(),
+  "purchaseOrderNumber": zod.string().nullable(),
   "recordedBy": zod.string(),
   "decidedBy": zod.string().nullable(),
   "decisionNote": zod.string().nullable(),
@@ -1223,6 +1822,8 @@ export const DecideDeliveryResponse = zod.object({
   "quantity": zod.number(),
   "tempC": zod.number().nullable(),
   "expiryDate": zod.coerce.date().nullable(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable(),
   "checkStatus": zod.enum(['pass', 'review']),
   "issue": zod.string().nullable()
 }))
@@ -1239,6 +1840,11 @@ export const ListStockCountsResponseItem = zod.object({
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().nullish(),
+  "workbook": zod.union([zod.object({
+  "name": zod.string(),
+  "uploadedBy": zod.string(),
+  "submittedAt": zod.coerce.date()
+}),zod.null()]),
   "lines": zod.array(zod.object({
   "id": zod.number().int(),
   "productId": zod.number().int(),
@@ -1248,19 +1854,32 @@ export const ListStockCountsResponseItem = zod.object({
   "unit": zod.string(),
   "sectionId": zod.number().int().nullable(),
   "sectionName": zod.string().nullable()
-}))
+})),
+  "movements": zod.array(zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable(),
+  "type": zod.string(),
+  "quantityDelta": zod.number(),
+  "reason": zod.string(),
+  "actor": zod.string(),
+  "occurredAt": zod.coerce.date()
+})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
 })
 export const ListStockCountsResponse = zod.array(ListStockCountsResponseItem)
 
 
 /**
- * @summary Start an all-stock, category, or single-product count
+ * @summary Start an all-stock, section, category, or single-product count
  */
 
 
 
 export const CreateStockCountBody = zod.object({
-  "scope": zod.enum(['all', 'category', 'product']),
+  "scope": zod.enum(['all', 'section', 'category', 'product']),
+  "sectionId": zod.number().int().optional(),
   "category": zod.string().min(1).optional(),
   "productId": zod.number().int().optional()
 })
@@ -1272,6 +1891,11 @@ export const CreateStockCountResponse = zod.object({
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().nullish(),
+  "workbook": zod.union([zod.object({
+  "name": zod.string(),
+  "uploadedBy": zod.string(),
+  "submittedAt": zod.coerce.date()
+}),zod.null()]),
   "lines": zod.array(zod.object({
   "id": zod.number().int(),
   "productId": zod.number().int(),
@@ -1281,7 +1905,19 @@ export const CreateStockCountResponse = zod.object({
   "unit": zod.string(),
   "sectionId": zod.number().int().nullable(),
   "sectionName": zod.string().nullable()
-}))
+})),
+  "movements": zod.array(zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable(),
+  "type": zod.string(),
+  "quantityDelta": zod.number(),
+  "reason": zod.string(),
+  "actor": zod.string(),
+  "occurredAt": zod.coerce.date()
+})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
 })
 
 
@@ -1299,6 +1935,11 @@ export const GetStockCountResponse = zod.object({
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().nullish(),
+  "workbook": zod.union([zod.object({
+  "name": zod.string(),
+  "uploadedBy": zod.string(),
+  "submittedAt": zod.coerce.date()
+}),zod.null()]),
   "lines": zod.array(zod.object({
   "id": zod.number().int(),
   "productId": zod.number().int(),
@@ -1308,7 +1949,19 @@ export const GetStockCountResponse = zod.object({
   "unit": zod.string(),
   "sectionId": zod.number().int().nullable(),
   "sectionName": zod.string().nullable()
-}))
+})),
+  "movements": zod.array(zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable(),
+  "type": zod.string(),
+  "quantityDelta": zod.number(),
+  "reason": zod.string(),
+  "actor": zod.string(),
+  "occurredAt": zod.coerce.date()
+})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
 })
 
 
@@ -1322,6 +1975,10 @@ export const SubmitStockCountParams = zod.object({
 export const submitStockCountBodyLinesItemCountedQuantityMin = 0;
 
 
+export const submitStockCountBodyWorkbookObjectPathMax = 512;
+
+export const submitStockCountBodyWorkbookNameMax = 255;
+
 
 
 export const SubmitStockCountBody = zod.object({
@@ -1329,7 +1986,10 @@ export const SubmitStockCountBody = zod.object({
   "productId": zod.number().int(),
   "sectionId": zod.number().int().optional(),
   "countedQuantity": zod.number().min(submitStockCountBodyLinesItemCountedQuantityMin)
-})).min(1)
+})).min(1),
+  "acknowledgedMovementIds": zod.array(zod.number().int()).describe('IDs of post-start movements shown to and acknowledged by the reviewer.'),
+  "workbookObjectPath": zod.string().max(submitStockCountBodyWorkbookObjectPathMax).optional(),
+  "workbookName": zod.string().min(1).max(submitStockCountBodyWorkbookNameMax).optional()
 })
 
 export const SubmitStockCountResponse = zod.object({
@@ -1339,6 +1999,11 @@ export const SubmitStockCountResponse = zod.object({
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().nullish(),
+  "workbook": zod.union([zod.object({
+  "name": zod.string(),
+  "uploadedBy": zod.string(),
+  "submittedAt": zod.coerce.date()
+}),zod.null()]),
   "lines": zod.array(zod.object({
   "id": zod.number().int(),
   "productId": zod.number().int(),
@@ -1348,12 +2013,61 @@ export const SubmitStockCountResponse = zod.object({
   "unit": zod.string(),
   "sectionId": zod.number().int().nullable(),
   "sectionName": zod.string().nullable()
-}))
+})),
+  "movements": zod.array(zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable(),
+  "type": zod.string(),
+  "quantityDelta": zod.number(),
+  "reason": zod.string(),
+  "actor": zod.string(),
+  "occurredAt": zod.coerce.date()
+})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
 })
 
 
 /**
- * @summary Get the recent inventory audit trail
+ * @summary Request an outlet-scoped upload URL for a count workbook
+ */
+export const RequestStockCountWorkbookUploadUrlParams = zod.object({
+  "countId": zod.coerce.number().int()
+})
+
+export const requestStockCountWorkbookUploadUrlBodyNameMax = 255;
+
+export const requestStockCountWorkbookUploadUrlBodySizeMax = 5242880;
+
+export const requestStockCountWorkbookUploadUrlBodyContentTypeMax = 255;
+
+
+
+export const RequestStockCountWorkbookUploadUrlBody = zod.object({
+  "name": zod.string().min(1).max(requestStockCountWorkbookUploadUrlBodyNameMax),
+  "size": zod.number().int().min(1).max(requestStockCountWorkbookUploadUrlBodySizeMax),
+  "contentType": zod.string().min(1).max(requestStockCountWorkbookUploadUrlBodyContentTypeMax)
+})
+
+export const RequestStockCountWorkbookUploadUrlResponse = zod.object({
+  "uploadURL": zod.string().url(),
+  "objectPath": zod.string()
+})
+
+
+/**
+ * @summary Download the submitted workbook for a count
+ */
+export const DownloadStockCountWorkbookParams = zod.object({
+  "countId": zod.coerce.number().int()
+})
+
+export const DownloadStockCountWorkbookResponse = zod.unknown()
+
+
+/**
+ * @summary Get filtered inventory movement history
  */
 export const listStockMovementsQueryLimitMax = 100;
 
@@ -1361,7 +2075,11 @@ export const listStockMovementsQueryLimitMax = 100;
 
 export const ListStockMovementsQueryParams = zod.object({
   "productId": zod.coerce.number().int().optional(),
-  "limit": zod.coerce.number().int().min(1).max(listStockMovementsQueryLimitMax).optional()
+  "dateFrom": zod.coerce.string().optional().describe('Inclusive ISO 8601 start timestamp for the requested period.'),
+  "dateTo": zod.coerce.string().optional().describe('Exclusive ISO 8601 end timestamp for the requested period.'),
+  "sectionName": zod.coerce.string().optional().describe('Match the historical stock-section label recorded on the movement.'),
+  "type": zod.enum(['received', 'adjustment', 'count', 'delivery', 'transfer_in', 'transfer_out']).optional(),
+  "limit": zod.coerce.number().int().min(1).max(listStockMovementsQueryLimitMax).optional().describe('Omit to return all matching movements.')
 })
 
 export const ListStockMovementsResponseItem = zod.object({
@@ -1394,9 +2112,68 @@ export const UpdateStoreUserRoleBody = zod.object({
 export const UpdateStoreUserRoleResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
+  "username": zod.string().nullable(),
   "email": zod.string(),
   "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
-  "storeName": zod.string()
+  "storeName": zod.string(),
+  "mustChangePassword": zod.boolean(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+})
+})
+
+
+/**
+ * @summary Change a teammate's section permissions for this outlet
+ */
+export const UpdateStoreUserAccessParams = zod.object({
+  "userId": zod.coerce.string()
+})
+
+export const UpdateStoreUserAccessBody = zod.object({
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+})
+})
+
+export const UpdateStoreUserAccessResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "username": zod.string().nullable(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'supervisor', 'staff']),
+  "storeName": zod.string(),
+  "mustChangePassword": zod.boolean(),
+  "access": zod.object({
+  "dashboard": zod.enum(['none', 'view', 'edit']),
+  "receiving": zod.enum(['none', 'view', 'edit']),
+  "deliveryRecords": zod.enum(['none', 'view', 'edit']),
+  "products": zod.enum(['none', 'view', 'edit']),
+  "suppliers": zod.enum(['none', 'view', 'edit']),
+  "stockTransfers": zod.enum(['none', 'view', 'edit']),
+  "purchaseOrders": zod.enum(['none', 'view', 'edit']),
+  "approvals": zod.enum(['none', 'view', 'edit']),
+  "activity": zod.enum(['none', 'view', 'edit']),
+  "stockCount": zod.enum(['none', 'view', 'edit'])
+})
 })
 
 

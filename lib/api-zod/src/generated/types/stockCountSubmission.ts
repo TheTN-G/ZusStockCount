@@ -10,4 +10,13 @@ import type { StockCountLineInput } from './stockCountLineInput';
 export interface StockCountSubmission {
   /** @minItems 1 */
   lines: StockCountLineInput[];
+  /** IDs of post-start movements shown to and acknowledged by the reviewer. */
+  acknowledgedMovementIds: number[];
+  /** @maxLength 512 */
+  workbookObjectPath?: string;
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  workbookName?: string;
 }

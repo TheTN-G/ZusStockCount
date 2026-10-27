@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { GetCurrentUserResponse } from "@workspace/api-zod";
+import { effectiveStoreAccess } from "../lib/storeAccess";
 import {
   db,
   storeroomMembershipsTable,
@@ -10,7 +11,7 @@ import {
 
 const router: IRouter = Router();
 
-router.get("/me", async (req, res): Promise<void> => {
+export async function getCurrentUserData(req: Parameters<Parameters<typeof router.get>[1]>[0]) {
   const user = req.storeUser!;
   const [workspace] = await db
     .select()
@@ -41,11 +42,13 @@ router.get("/me", async (req, res): Promise<void> => {
       asc(storeroomMembershipsTable.createdAt),
       asc(storeroomMembershipsTable.id),
     );
-  res.json(
-    GetCurrentUserResponse.parse({
+  return GetCurrentUserResponse.parse({
       id: user.id,
       name: user.name,
+      username: user.username,
       email: user.email,
+      hasPassword: Boolean(user.passwordHash),
+      mustChangePassword: user.mustChangePassword,
       role: req.storeMembership!.role,
       storeName: req.storeroom!.name,
       activeStoreroomId: req.storeroomId!,
@@ -61,8 +64,15 @@ router.get("/me", async (req, res): Promise<void> => {
       },
       activeOutletId: req.storeroomId!,
       outlets,
-    }),
-  );
+      access: effectiveStoreAccess(
+        req.storeMembership!.role,
+        req.storeMembership!.permissions,
+      ),
+    });
+}
+
+router.get("/me", async (req, res): Promise<void> => {
+  res.json(await getCurrentUserData(req));
 });
 
 export default router;

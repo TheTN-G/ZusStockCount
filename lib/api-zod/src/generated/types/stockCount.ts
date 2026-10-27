@@ -7,6 +7,8 @@
  */
 import type { CountStatus } from './countStatus';
 import type { StockCountLine } from './stockCountLine';
+import type { StockCountMovement } from './stockCountMovement';
+import type { StockCountWorkbook } from './stockCountWorkbook';
 
 export interface StockCount {
   id: number;
@@ -16,5 +18,8 @@ export interface StockCount {
   createdAt: Date;
   /** @nullable */
   completedAt?: Date | null;
+  workbook: StockCountWorkbook | null;
   lines: StockCountLine[];
+  /** Inventory movements recorded after this count began, included on count detail responses. */
+  movements?: StockCountMovement[];
 }

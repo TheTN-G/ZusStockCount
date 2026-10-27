@@ -1,12 +1,17 @@
 import { createHash } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
-import { clerkClient } from "@clerk/express";
 import { Router, type IRouter } from "express";
 import {
   CompleteStoreUserPasswordResetBody,
   CompleteStoreUserPasswordResetResponse,
 } from "@workspace/api-zod";
-import { db, passwordResetTokensTable } from "@workspace/db";
+import {
+  authSessionsTable,
+  db,
+  passwordResetTokensTable,
+  storeUsersTable,
+} from "@workspace/db";
+import { hashPassword } from "../auth/localAuth";
 
 const router: IRouter = Router();
 
@@ -45,18 +50,22 @@ router.post(
     }
 
     res.setHeader("Cache-Control", "no-store");
-    try {
-      await clerkClient.users.updateUser(claimedToken.targetUserId, {
-        password: body.data.password,
-        signOutOfOtherSessions: true,
-      });
-    } catch {
-      res.status(400).json({
-        error:
-          "Could not set this password. Ask an owner or manager for a new reset link.",
-      });
-      return;
-    }
+    const passwordHash = await hashPassword(body.data.password);
+    await db.transaction(async (tx) => {
+      await tx
+        .update(storeUsersTable)
+        .set({ passwordHash, mustChangePassword: false })
+        .where(eq(storeUsersTable.id, claimedToken.targetUserId));
+      await tx
+        .update(authSessionsTable)
+        .set({ revokedAt: now })
+        .where(
+          and(
+            eq(authSessionsTable.userId, claimedToken.targetUserId),
+            isNull(authSessionsTable.revokedAt),
+          ),
+        );
+    });
 
     res.json(CompleteStoreUserPasswordResetResponse.parse({ complete: true }));
   },

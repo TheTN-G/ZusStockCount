@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  jsonb,
   pgTable,
   serial,
   text,
@@ -47,6 +48,7 @@ export const storeroomMembershipsTable = pgTable(
       .notNull()
       .references(() => storeUsersTable.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("staff"),
+    permissions: jsonb("permissions").$type<Record<string, "none" | "view" | "edit"> | null>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

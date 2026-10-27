@@ -11,4 +11,5 @@ export type SecurityEventEventType = typeof SecurityEventEventType[keyof typeof 
 
 export const SecurityEventEventType = {
   password_reset_link_created: 'password_reset_link_created',
+  staff_access_updated: 'staff_access_updated',
 } as const;

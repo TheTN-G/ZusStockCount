@@ -12,4 +12,5 @@ export interface PurchaseOrderLine {
   quantity: number;
   receivedQuantity: number;
   unit: string;
+  conversionFactor: number;
 }

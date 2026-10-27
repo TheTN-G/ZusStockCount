@@ -15,6 +15,9 @@ import workspacesRouter from "./workspaces";
 import suppliersRouter from "./suppliers";
 import deliveriesRouter from "./deliveries";
 import passwordResetRouter from "./passwordReset";
+import publicAuthRouter from "./publicAuth";
+import accountAuthRouter from "./accountAuth";
+import teamAccountsRouter from "./teamAccounts";
 import { createRequireStoreUser } from "../middlewares/storeUser";
 
 export function createApiRouter(resolveAuth?: StoreAuthResolver): IRouter {
@@ -22,7 +25,10 @@ export function createApiRouter(resolveAuth?: StoreAuthResolver): IRouter {
 
   router.use(healthRouter);
   router.use(passwordResetRouter);
+  router.use(publicAuthRouter);
   router.use(createRequireStoreUser(resolveAuth));
+  router.use(accountAuthRouter);
+  router.use(teamAccountsRouter);
   router.use(currentUserRouter);
   router.use(storeroomsRouter);
   router.use(workspacesRouter);

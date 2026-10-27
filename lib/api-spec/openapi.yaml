@@ -24,6 +24,8 @@ tags:
     description: Store purchase requests and receiving
   - name: counts
     description: Stock count sessions
+  - name: storage
+    description: Private stock-count workbook uploads and downloads
   - name: movements
     description: Inventory audit trail
 paths:
@@ -40,6 +42,85 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/register:
+    post:
+      operationId: registerAccount
+      tags: [users]
+      summary: Register an owner workspace account
+      description: Creates an account with username and password, then starts a signed-in session. Email is optional.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccountRegistrationInput" }
+      responses:
+        "201":
+          description: Account registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSession" }
+        "400":
+          description: Registration details are invalid
+        "409":
+          description: Username or email is already in use
+  /auth/login:
+    post:
+      operationId: signInWithPassword
+      tags: [users]
+      summary: Sign in with username or email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordSignInInput" }
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSession" }
+        "400":
+          description: Sign-in details are invalid
+        "401":
+          description: The username or password is incorrect
+        "429":
+          description: Too many failed sign-in attempts
+  /auth/sign-out:
+    post:
+      operationId: signOutAccount
+      tags: [users]
+      summary: Sign out and revoke the active session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyInput" }
+      responses:
+        "200":
+          description: Signed out
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompletePasswordResetResponse" }
+  /auth/migrate:
+    post:
+      operationId: migrateLegacyAccount
+      tags: [users]
+      summary: Add username and password sign-in to an existing signed-in account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegacyAccountCredentialsInput" }
+      responses:
+        "200":
+          description: Credentials added to the existing account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurrentUser" }
+        "400":
+          description: Credentials are invalid
+        "409":
+          description: The username is already in use or credentials are already set
   /me:
     get:
       operationId: getCurrentUser
@@ -52,6 +133,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CurrentUser"
+  /users/accounts:
+    post:
+      operationId: createStoreAccount
+      tags: [users]
+      summary: Create a teammate account with a temporary password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StoreAccountInput" }
+      responses:
+        "201":
+          description: Teammate account created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreUser" }
+        "400":
+          description: Account details are invalid
+        "403":
+          description: The actor cannot create this role
+        "409":
+          description: Username or email is already in use
+  /users/me/profile:
+    patch:
+      operationId: updateMyProfile
+      tags: [users]
+      summary: Update the signed-in user's name, username, or optional email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MyProfileInput" }
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurrentUser" }
+        "400":
+          description: Profile details are invalid
+        "409":
+          description: Username is already in use
+  /users/me/password:
+    patch:
+      operationId: changeMyPassword
+      tags: [users]
+      summary: Change the signed-in user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MyPasswordInput" }
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompletePasswordResetResponse" }
+        "400":
+          description: Password is invalid or does not match
   /outlets:
     post:
       operationId: createOutlet
@@ -95,6 +236,33 @@ paths:
           description: The signed-in user cannot update outlet details
         "404":
           description: Outlet is outside the owner's workspace or manager's assigned outlet
+  /outlets/{outletId}/name:
+    patch:
+      operationId: renameOutlet
+      tags: [workspaces]
+      summary: Rename an outlet in the signed-in owner's workspace
+      parameters:
+        - in: path
+          name: outletId
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OutletNameUpdate" }
+      responses:
+        "200":
+          description: Renamed outlet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OutletSummary" }
+        "400":
+          description: Invalid outlet name
+        "403":
+          description: The signed-in user is not the workspace owner
+        "404":
+          description: Outlet is outside the owner's workspace
   /workspaces/me:
     patch:
       operationId: updateWorkspace
@@ -127,6 +295,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/WorkspaceSummary" }
+        "400":
+          description: Workspace or outlet registration details need correction
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceSetupValidationError" }
   /users:
     get:
       operationId: listStoreUsers
@@ -578,7 +751,7 @@ paths:
     get:
       operationId: listPurchaseOrders
       tags: [orders]
-      summary: List store purchase requests and their lines
+      summary: List outlet purchase orders and their lines
       parameters:
         - in: query
           name: status
@@ -594,7 +767,7 @@ paths:
     post:
       operationId: createPurchaseOrder
       tags: [orders]
-      summary: Submit a purchase request for approval
+      summary: Save a purchase-order draft
       requestBody:
         required: true
         content:
@@ -602,7 +775,73 @@ paths:
             schema: { $ref: "#/components/schemas/PurchaseOrderInput" }
       responses:
         "201":
-          description: Created purchase request
+          description: Created purchase-order draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PurchaseOrder" }
+  /purchase-orders/low-stock-drafts:
+    post:
+      operationId: createLowStockPurchaseOrderDrafts
+      tags: [orders]
+      summary: Create editable purchase-order drafts for uncovered low stock
+      responses:
+        "201":
+          description: Draft purchase orders grouped by preferred supplier
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PurchaseOrder" }
+  /purchase-orders/{orderId}:
+    patch:
+      operationId: updatePurchaseOrderDraft
+      tags: [orders]
+      summary: Edit a purchase-order draft
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PurchaseOrderUpdateInput" }
+      responses:
+        "200":
+          description: Updated purchase-order draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PurchaseOrder" }
+  /purchase-orders/{orderId}/issue:
+    post:
+      operationId: issuePurchaseOrder
+      tags: [orders]
+      summary: Confirm a draft and assign its monthly PO number
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Issued purchase order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PurchaseOrder" }
+  /purchase-orders/{orderId}/cancel:
+    post:
+      operationId: cancelPurchaseOrder
+      tags: [orders]
+      summary: Cancel a draft or issued purchase order
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Cancelled purchase order
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PurchaseOrder" }
@@ -610,7 +849,7 @@ paths:
     post:
       operationId: decidePurchaseOrder
       tags: [orders]
-      summary: Approve or reject a purchase request
+      summary: Approve or reject a legacy purchase request
       parameters:
         - in: path
           name: orderId
@@ -631,7 +870,7 @@ paths:
     post:
       operationId: receivePurchaseOrder
       tags: [orders, inventory]
-      summary: Record a full or partial delivery
+      summary: Record a full or partial purchase-order receipt
       parameters:
         - in: path
           name: orderId
@@ -713,7 +952,7 @@ paths:
     post:
       operationId: createStockCount
       tags: [counts]
-      summary: Start an all-stock, category, or single-product count
+      summary: Start an all-stock, section, category, or single-product count
       requestBody:
         required: true
         content:
@@ -762,17 +1001,78 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StockCount" }
+        "409":
+          description: The count is complete or new stock movements require review
+  /stock-counts/{countId}/workbook/upload-url:
+    post:
+      operationId: requestStockCountWorkbookUploadUrl
+      tags: [counts]
+      summary: Request an outlet-scoped upload URL for a count workbook
+      parameters:
+        - in: path
+          name: countId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockCountWorkbookUploadRequest" }
+      responses:
+        "200":
+          description: Private upload URL generated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockCountWorkbookUploadUrl" }
+        "400":
+          description: Invalid workbook metadata
+        "404":
+          description: Count session not found in the selected outlet
+  /stock-counts/{countId}/workbook:
+    get:
+      operationId: downloadStockCountWorkbook
+      tags: [counts]
+      summary: Download the submitted workbook for a count
+      parameters:
+        - in: path
+          name: countId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Submitted workbook bytes
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        "404":
+          description: Workbook not found in the selected outlet
   /movements:
     get:
       operationId: listStockMovements
       tags: [movements]
-      summary: Get the recent inventory audit trail
+      summary: Get filtered inventory movement history
       parameters:
         - in: query
           name: productId
           schema: { type: integer }
         - in: query
+          name: dateFrom
+          description: Inclusive ISO 8601 start timestamp for the requested period.
+          schema: { type: string }
+        - in: query
+          name: dateTo
+          description: Exclusive ISO 8601 end timestamp for the requested period.
+          schema: { type: string }
+        - in: query
+          name: sectionName
+          description: Match the historical stock-section label recorded on the movement.
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { $ref: "#/components/schemas/MovementType" }
+        - in: query
           name: limit
+          description: Omit to return all matching movements.
           schema: { type: integer, minimum: 1, maximum: 100 }
       responses:
         "200":
@@ -803,6 +1103,27 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StoreUser" }
+  /users/{userId}/access:
+    patch:
+      operationId: updateStoreUserAccess
+      tags: [users]
+      summary: Change a teammate's section permissions for this outlet
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StoreAccessUpdate" }
+      responses:
+        "200":
+          description: Updated teammate permissions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreUser" }
 components:
   schemas:
     HealthStatus:
@@ -821,21 +1142,101 @@ components:
     StoreRole:
       type: string
       enum: [owner, admin, supervisor, staff]
+    AccessLevel:
+      type: string
+      enum: [none, view, edit]
+    StoreAccess:
+      type: object
+      additionalProperties: false
+      required: [dashboard, receiving, deliveryRecords, products, suppliers, stockTransfers, purchaseOrders, approvals, activity, stockCount]
+      properties:
+        dashboard: { $ref: "#/components/schemas/AccessLevel" }
+        receiving: { $ref: "#/components/schemas/AccessLevel" }
+        deliveryRecords: { $ref: "#/components/schemas/AccessLevel" }
+        products: { $ref: "#/components/schemas/AccessLevel" }
+        suppliers: { $ref: "#/components/schemas/AccessLevel" }
+        stockTransfers: { $ref: "#/components/schemas/AccessLevel" }
+        purchaseOrders: { $ref: "#/components/schemas/AccessLevel" }
+        approvals: { $ref: "#/components/schemas/AccessLevel" }
+        activity: { $ref: "#/components/schemas/AccessLevel" }
+        stockCount: { $ref: "#/components/schemas/AccessLevel" }
+    StoreAccessUpdate:
+      type: object
+      required: [access]
+      properties:
+        access: { $ref: "#/components/schemas/StoreAccess" }
     OrderStatus:
       type: string
-      enum: [pending, approved, rejected, partially_received, received]
+      enum: [draft, issued, pending, approved, rejected, partially_received, received, cancelled]
     CountStatus:
       type: string
       enum: [in_progress, completed]
     StoreUser:
       type: object
-      required: [id, name, email, role, storeName]
+      required: [id, name, username, email, role, storeName, mustChangePassword, access]
       properties:
         id: { type: string }
         name: { type: string }
+        username: { type: ["string", "null"] }
         email: { type: string }
         role: { $ref: "#/components/schemas/StoreRole" }
         storeName: { type: string }
+        mustChangePassword: { type: boolean }
+        access: { $ref: "#/components/schemas/StoreAccess" }
+    AccountRegistrationInput:
+      type: object
+      required: [name, workspaceName, username, password]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        workspaceName: { type: string, minLength: 1, maxLength: 80 }
+        username: { type: string, minLength: 3, maxLength: 32, pattern: '^[A-Za-z0-9._-]{3,32}$' }
+        email: { type: ["string", "null"], format: email, maxLength: 320 }
+        password: { type: string, minLength: 8, maxLength: 128 }
+    PasswordSignInInput:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier: { type: string, minLength: 3, maxLength: 320 }
+        password: { type: string, minLength: 1, maxLength: 128 }
+    AuthSession:
+      type: object
+      required: [authenticated, userId, mustChangePassword]
+      properties:
+        authenticated: { type: boolean, enum: [true] }
+        userId: { type: string }
+        mustChangePassword: { type: boolean }
+    EmptyInput:
+      type: object
+      additionalProperties: false
+    LegacyAccountCredentialsInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 32, pattern: '^[A-Za-z0-9._-]{3,32}$' }
+        password: { type: string, minLength: 8, maxLength: 128 }
+    StoreAccountInput:
+      type: object
+      required: [name, username, role, temporaryPassword]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        username: { type: string, minLength: 3, maxLength: 32, pattern: '^[A-Za-z0-9._-]{3,32}$' }
+        email: { type: ["string", "null"], format: email, maxLength: 320 }
+        role: { $ref: "#/components/schemas/UserRole" }
+        temporaryPassword: { type: string, minLength: 8, maxLength: 128 }
+        access: { $ref: "#/components/schemas/StoreAccess" }
+    MyProfileInput:
+      type: object
+      required: [name, username, email]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        username: { type: string, minLength: 3, maxLength: 32, pattern: '^[A-Za-z0-9._-]{3,32}$' }
+        email: { type: ["string", "null"], format: email, maxLength: 320 }
+    MyPasswordInput:
+      type: object
+      required: [newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 1, maxLength: 128 }
+        newPassword: { type: string, minLength: 8, maxLength: 128 }
     StoreInvitationStatus:
       type: string
       enum: [pending, accepted, expired, revoked]
@@ -860,7 +1261,7 @@ components:
       required: [token, password]
       properties:
         token: { type: string, minLength: 40, maxLength: 256 }
-        password: { type: string, minLength: 8, maxLength: 256 }
+        password: { type: string, minLength: 8, maxLength: 128 }
     CompletePasswordResetResponse:
       type: object
       required: [complete]
@@ -868,12 +1269,25 @@ components:
         complete: { type: boolean, enum: [true] }
     SecurityEvent:
       type: object
-      required: [id, eventType, actorName, targetName, createdAt]
+      required: [id, eventType, actorUserId, targetUserId, storeroomId, outletName, actorName, targetName, changedSections, createdAt]
       properties:
         id: { type: integer }
-        eventType: { type: string, enum: [password_reset_link_created] }
+        eventType: { type: string, enum: [password_reset_link_created, staff_access_updated] }
+        actorUserId: { type: string, nullable: true }
+        targetUserId: { type: string, nullable: true }
+        storeroomId: { type: integer }
+        outletName: { type: string }
         actorName: { type: string }
         targetName: { type: string }
+        changedSections:
+          type: array
+          items:
+            type: object
+            required: [section, previousAccess, newAccess]
+            properties:
+              section: { type: string }
+              previousAccess: { type: string, enum: [none, view, edit] }
+              newAccess: { type: string, enum: [none, view, edit] }
         createdAt: { type: string, format: date-time }
     StoreInvitationInput:
       type: object
@@ -912,11 +1326,14 @@ components:
         businessAddress: { type: ["string", "null"] }
     CurrentUser:
       type: object
-      required: [id, name, email, role, storeName, activeStoreroomId, storerooms, workspace, activeOutletId, outlets]
+      required: [id, name, username, email, hasPassword, mustChangePassword, role, storeName, activeStoreroomId, storerooms, workspace, activeOutletId, outlets, access]
       properties:
         id: { type: string }
         name: { type: string }
+        username: { type: ["string", "null"] }
         email: { type: string }
+        hasPassword: { type: boolean }
+        mustChangePassword: { type: boolean }
         role: { $ref: "#/components/schemas/StoreRole" }
         storeName: { type: string }
         activeStoreroomId: { type: integer }
@@ -925,6 +1342,7 @@ components:
           items: { $ref: "#/components/schemas/StoreroomSummary" }
         workspace: { $ref: "#/components/schemas/WorkspaceSummary" }
         activeOutletId: { type: integer }
+        access: { $ref: "#/components/schemas/StoreAccess" }
         outlets:
           type: array
           items: { $ref: "#/components/schemas/OutletSummary" }
@@ -940,6 +1358,11 @@ components:
         contactEmail: { type: ["string", "null"], format: email, maxLength: 320 }
         contactPhone: { type: ["string", "null"], maxLength: 40 }
         businessAddress: { type: ["string", "null"], maxLength: 500 }
+    OutletNameUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
     WorkspaceUpdate:
       type: object
       required: [name, contactEmail, contactPhone, businessAddress]
@@ -957,15 +1380,30 @@ components:
         contactPhone: { type: ["string", "null"], maxLength: 40 }
         businessAddress: { type: ["string", "null"], maxLength: 500 }
         firstOutletName: { type: string, minLength: 1, maxLength: 80 }
+    WorkspaceSetupValidationError:
+      type: object
+      required: [error, fieldErrors]
+      properties:
+        error: { type: string }
+        fieldErrors:
+          type: object
+          properties:
+            name: { type: string }
+            contactEmail: { type: string }
+            contactPhone: { type: string }
+            businessAddress: { type: string }
+            firstOutletName: { type: string }
     AddStoreMemberInput:
       type: object
-      required: [email, role]
+      required: [role]
       properties:
         email: { type: string, format: email }
+        username: { type: string, minLength: 3, maxLength: 32, pattern: '^[A-Za-z0-9._-]{3,32}$' }
         role: { $ref: "#/components/schemas/UserRole" }
+        access: { $ref: "#/components/schemas/StoreAccess" }
     Product:
       type: object
-      required: [id, name, category, defaultSectionId, unit, bundleSize, minStock, stockOnHand, lowStock, active, tempMinC, tempMaxC]
+      required: [id, name, category, defaultSectionId, unit, bundleUnit, bundleSize, minStock, minStockUnit, preferredSupplierId, stockOnHand, lowStock, active, tempMinC, tempMaxC]
       properties:
         id: { type: integer }
         name: { type: string }
@@ -973,8 +1411,11 @@ components:
         category: { $ref: "#/components/schemas/ProductCategory" }
         defaultSectionId: { type: ["integer", "null"] }
         unit: { type: string }
+        bundleUnit: { type: string }
         bundleSize: { type: number }
         minStock: { type: number }
+        minStockUnit: { type: string, enum: [unit, bundle] }
+        preferredSupplierId: { type: ["integer", "null"] }
         stockOnHand: { type: number }
         lowStock: { type: boolean }
         active: { type: boolean }
@@ -989,8 +1430,18 @@ components:
         category: { $ref: "#/components/schemas/ProductCategory" }
         defaultSectionId: { type: ["integer", "null"] }
         unit: { type: string, minLength: 1 }
+        bundleUnit: { type: string, minLength: 1 }
         bundleSize: { type: number, minimum: 0.01 }
         minStock: { type: number, minimum: 0 }
+        minStockUnit: { type: string, enum: [unit, bundle] }
+        preferredSupplierId: { type: ["integer", "null"] }
+        openingStock:
+          type: object
+          properties:
+            quantity: { type: number, minimum: 0 }
+            sectionId: { type: ["integer", "null"] }
+            expiryDate: { type: ["string", "null"], format: date }
+          required: [quantity]
         tempMinC: { type: ["number", "null"], minimum: -60, maximum: 100 }
         tempMaxC: { type: ["number", "null"], minimum: -60, maximum: 100 }
     ProductUpdate:
@@ -1001,8 +1452,11 @@ components:
         category: { $ref: "#/components/schemas/ProductCategory" }
         defaultSectionId: { type: ["integer", "null"] }
         unit: { type: string, minLength: 1 }
+        bundleUnit: { type: string, minLength: 1 }
         bundleSize: { type: number, minimum: 0.01 }
         minStock: { type: number, minimum: 0 }
+        minStockUnit: { type: string, enum: [unit, bundle] }
+        preferredSupplierId: { type: ["integer", "null"] }
         active: { type: boolean }
         tempMinC: { type: ["number", "null"], minimum: -60, maximum: 100 }
         tempMaxC: { type: ["number", "null"], minimum: -60, maximum: 100 }
@@ -1186,21 +1640,25 @@ components:
         expiryDate: { type: ["string", "null"], format: date }
     PurchaseOrderLine:
       type: object
-      required: [productId, productName, quantity, receivedQuantity, unit]
+      required: [productId, productName, quantity, receivedQuantity, unit, conversionFactor]
       properties:
         productId: { type: integer }
         productName: { type: string }
         quantity: { type: number }
         receivedQuantity: { type: number }
         unit: { type: string }
+        conversionFactor: { type: number }
     PurchaseOrder:
       type: object
-      required: [id, status, requestedBy, createdAt, outlet, lines]
+      required: [id, status, requestedBy, createdAt, outlet, lines, orderNumber, expectedDeliveryDate, issuedAt]
       properties:
         id: { type: integer }
         status: { $ref: "#/components/schemas/OrderStatus" }
         requestedBy: { type: string }
         reviewedBy: { type: ["string", "null"] }
+        orderNumber: { type: ["string", "null"] }
+        expectedDeliveryDate: { type: ["string", "null"], format: date }
+        issuedAt: { type: ["string", "null"], format: date-time }
         note: { type: ["string", "null"] }
         supplierId: { type: ["integer", "null"] }
         supplierName: { type: ["string", "null"] }
@@ -1224,15 +1682,29 @@ components:
       properties:
         productId: { type: integer }
         quantity: { type: number, minimum: 0.01 }
+        unitType: { type: string, enum: [unit, bundle] }
     PurchaseOrderInput:
       type: object
       required: [lines]
       properties:
         note: { type: string }
         supplierId: { type: ["integer", "null"] }
+        expectedDeliveryDate: { type: ["string", "null"], format: date }
         lines:
           type: array
           minItems: 1
+          items: { $ref: "#/components/schemas/PurchaseOrderLineInput" }
+    PurchaseOrderUpdateInput:
+      type: object
+      required: [supplierId, expectedDeliveryDate, note, lines]
+      properties:
+        supplierId: { type: ["integer", "null"] }
+        expectedDeliveryDate: { type: ["string", "null"], format: date }
+        note: { type: ["string", "null"] }
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
           items: { $ref: "#/components/schemas/PurchaseOrderLineInput" }
     OrderDecisionInput:
       type: object
@@ -1247,6 +1719,7 @@ components:
         productId: { type: integer }
         receivedQuantity: { type: number, minimum: 0 }
         expiryDate: { type: ["string", "null"], format: date }
+        sectionId: { type: ["integer", "null"] }
     ReceiptInput:
       type: object
       required: [lines]
@@ -1261,24 +1734,27 @@ components:
       enum: [accepted, pending_approval, rejected, returned]
     DeliveryLine:
       type: object
-      required: [productId, productName, quantity, tempC, expiryDate, checkStatus, issue]
+      required: [productId, productName, quantity, tempC, expiryDate, sectionId, sectionName, checkStatus, issue]
       properties:
         productId: { type: integer }
         productName: { type: string }
         quantity: { type: number }
         tempC: { type: ["number", "null"] }
         expiryDate: { type: ["string", "null"], format: date }
+        sectionId: { type: ["integer", "null"] }
+        sectionName: { type: ["string", "null"] }
         checkStatus: { type: string, enum: [pass, review] }
         issue: { type: ["string", "null"] }
     Delivery:
       type: object
-      required: [id, status, supplierId, supplierName, purchaseOrderId, recordedBy, decidedBy, decisionNote, createdAt, lines]
+      required: [id, status, supplierId, supplierName, purchaseOrderId, purchaseOrderNumber, recordedBy, decidedBy, decisionNote, createdAt, lines]
       properties:
         id: { type: integer }
         status: { $ref: "#/components/schemas/DeliveryStatus" }
         supplierId: { type: ["integer", "null"] }
         supplierName: { type: ["string", "null"] }
         purchaseOrderId: { type: ["integer", "null"] }
+        purchaseOrderNumber: { type: ["string", "null"] }
         recordedBy: { type: string }
         decidedBy: { type: ["string", "null"] }
         decisionNote: { type: ["string", "null"] }
@@ -1294,6 +1770,7 @@ components:
         quantity: { type: number, exclusiveMinimum: 0 }
         tempC: { type: ["number", "null"], minimum: -60, maximum: 100 }
         expiryDate: { type: ["string", "null"], format: date }
+        sectionId: { type: ["integer", "null"] }
     DeliveryInput:
       type: object
       required: [lines]
@@ -1325,7 +1802,7 @@ components:
         sectionName: { type: ["string", "null"] }
     StockCount:
       type: object
-      required: [id, scope, status, createdBy, createdAt, lines]
+      required: [id, scope, status, createdBy, createdAt, lines, workbook]
       properties:
         id: { type: integer }
         scope: { type: string }
@@ -1333,14 +1810,57 @@ components:
         createdBy: { type: string }
         createdAt: { type: string, format: date-time }
         completedAt: { type: ["string", "null"], format: date-time }
+        workbook:
+          oneOf:
+            - $ref: "#/components/schemas/StockCountWorkbook"
+            - type: "null"
         lines:
           type: array
           items: { $ref: "#/components/schemas/StockCountLine" }
+        movements:
+          type: array
+          description: Inventory movements recorded after this count began, included on count detail responses.
+          items: { $ref: "#/components/schemas/StockCountMovement" }
+    StockCountWorkbook:
+      type: object
+      required: [name, uploadedBy, submittedAt]
+      properties:
+        name: { type: string }
+        uploadedBy: { type: string }
+        submittedAt: { type: string, format: date-time }
+    StockCountWorkbookUploadRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        size: { type: integer, minimum: 1, maximum: 5242880 }
+        contentType: { type: string, minLength: 1, maxLength: 255 }
+    StockCountWorkbookUploadUrl:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL: { type: string, format: uri }
+        objectPath: { type: string }
+    StockCountMovement:
+      type: object
+      required: [id, productId, productName, sectionId, sectionName, type, quantityDelta, reason, actor, occurredAt]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        sectionId: { type: ["integer", "null"] }
+        sectionName: { type: ["string", "null"] }
+        type: { type: string }
+        quantityDelta: { type: number }
+        reason: { type: string }
+        actor: { type: string }
+        occurredAt: { type: string, format: date-time }
     StockCountInput:
       type: object
       required: [scope]
       properties:
-        scope: { type: string, enum: [all, category, product] }
+        scope: { type: string, enum: [all, section, category, product] }
+        sectionId: { type: integer }
         category: { $ref: "#/components/schemas/ProductCategory" }
         productId: { type: integer }
     StockCountLineInput:
@@ -1352,12 +1872,18 @@ components:
         countedQuantity: { type: number, minimum: 0 }
     StockCountSubmission:
       type: object
-      required: [lines]
+      required: [lines, acknowledgedMovementIds]
       properties:
         lines:
           type: array
           minItems: 1
           items: { $ref: "#/components/schemas/StockCountLineInput" }
+        acknowledgedMovementIds:
+          type: array
+          description: IDs of post-start movements shown to and acknowledged by the reviewer.
+          items: { type: integer }
+        workbookObjectPath: { type: string, maxLength: 512 }
+        workbookName: { type: string, minLength: 1, maxLength: 255 }
     MovementType:
       type: string
       enum: [received, adjustment, count, delivery, transfer_in, transfer_out]

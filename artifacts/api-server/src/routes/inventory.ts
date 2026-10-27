@@ -35,6 +35,23 @@ router.get("/inventory/movements", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const dateFrom = parsed.data.dateFrom ? new Date(parsed.data.dateFrom) : undefined;
+  const dateTo = parsed.data.dateTo ? new Date(parsed.data.dateTo) : undefined;
+  if (
+    (dateFrom && !Number.isFinite(dateFrom.getTime())) ||
+    (dateTo && !Number.isFinite(dateTo.getTime()))
+  ) {
+    res.status(400).json({ error: "Activity date filters must be valid ISO 8601 timestamps." });
+    return;
+  }
+  if (
+    dateFrom &&
+    dateTo &&
+    dateFrom >= dateTo
+  ) {
+    res.status(400).json({ error: "The start date must be on or before the end date." });
+    return;
+  }
   const movements = await listMovements(req.storeroomId!, parsed.data);
   res.json(ListStockMovementsResponse.parse(movements));
 });

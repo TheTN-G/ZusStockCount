@@ -12,4 +12,6 @@ export interface ReceiptLineInput {
   receivedQuantity: number;
   /** @nullable */
   expiryDate?: Date | null;
+  /** @nullable */
+  sectionId?: number | null;
 }

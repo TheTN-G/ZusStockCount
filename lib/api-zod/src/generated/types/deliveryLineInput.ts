@@ -18,4 +18,6 @@ export interface DeliveryLineInput {
   tempC?: number | null;
   /** @nullable */
   expiryDate?: Date | null;
+  /** @nullable */
+  sectionId?: number | null;
 }

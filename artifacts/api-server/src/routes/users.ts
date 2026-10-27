@@ -1,12 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { clerkClient } from "@clerk/express";
 import { and, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
-import { Router, type IRouter, type Request } from "express";
+import { Router, type IRouter } from "express";
 import {
   AddStoreMemberBody,
   AddStoreMemberResponse,
-  CreateStoreInvitationBody,
-  CreateStoreInvitationResponse,
   ListStoreUsersResponse,
   ListStoreInvitationsResponse,
   ListStoreSecurityEventsResponse,
@@ -17,6 +15,9 @@ import {
   UpdateStoreUserRoleBody,
   UpdateStoreUserRoleParams,
   UpdateStoreUserRoleResponse,
+  UpdateStoreUserAccessBody,
+  UpdateStoreUserAccessParams,
+  UpdateStoreUserAccessResponse,
 } from "@workspace/api-zod";
 import {
   db,
@@ -25,12 +26,12 @@ import {
   securityEventsTable,
   storeUsersTable,
   storeroomMembershipsTable,
+  storeroomsTable,
 } from "@workspace/db";
 import { requireRoles } from "../middlewares/storeUser";
+import { effectiveStoreAccess } from "../lib/storeAccess";
 
 const router: IRouter = Router();
-const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
-
 function invitationResponse(
   invitation: typeof storeInvitationsTable.$inferSelect,
   now = new Date(),
@@ -48,26 +49,16 @@ function invitationResponse(
   };
 }
 
-function signupRedirectUrl(req: Request) {
-  const origin = req.get("origin");
-  const host = req.get("host");
-  if (!origin || !host) return undefined;
-  try {
-    const parsedOrigin = new URL(origin);
-    if (parsedOrigin.host !== host) return undefined;
-    return new URL("/sign-up", parsedOrigin.origin).toString();
-  } catch {
-    return undefined;
-  }
-}
-
 router.get("/users", requireRoles("owner", "admin", "supervisor"), async (req, res): Promise<void> => {
   const users = await db
     .select({
       id: storeUsersTable.id,
       name: storeUsersTable.name,
+      username: storeUsersTable.username,
       email: storeUsersTable.email,
       role: storeroomMembershipsTable.role,
+      permissions: storeroomMembershipsTable.permissions,
+      mustChangePassword: storeUsersTable.mustChangePassword,
     })
     .from(storeroomMembershipsTable)
     .innerJoin(
@@ -78,7 +69,11 @@ router.get("/users", requireRoles("owner", "admin", "supervisor"), async (req, r
     .orderBy(storeUsersTable.createdAt);
   res.json(
     ListStoreUsersResponse.parse(
-      users.map((user) => ({ ...user, storeName: req.storeroom!.name })),
+      users.map((user) => ({
+        ...user,
+        storeName: req.storeroom!.name,
+        access: effectiveStoreAccess(user.role, user.permissions),
+      })),
     ),
   );
 });
@@ -93,9 +88,18 @@ router.get(
         eventType: securityEventsTable.eventType,
         actorName: securityEventsTable.actorName,
         targetName: securityEventsTable.targetName,
+        actorUserId: securityEventsTable.actorUserId,
+        targetUserId: securityEventsTable.targetUserId,
+        storeroomId: securityEventsTable.storeroomId,
+        outletName: storeroomsTable.name,
+        changedSections: securityEventsTable.changedSections,
         createdAt: securityEventsTable.createdAt,
       })
       .from(securityEventsTable)
+      .innerJoin(
+        storeroomsTable,
+        eq(storeroomsTable.id, securityEventsTable.storeroomId),
+      )
       .where(eq(securityEventsTable.storeroomId, req.storeroomId!))
       .orderBy(desc(securityEventsTable.createdAt))
       .limit(100);
@@ -182,6 +186,7 @@ router.post(
         actorName: req.storeUser!.name,
         targetName: target.name,
         eventType: "password_reset_link_created",
+        changedSections: [],
       });
     });
 
@@ -213,15 +218,25 @@ router.post(
       });
       return;
     }
-    const email = body.data.email.trim().toLowerCase();
+    const email = body.data.email?.trim().toLowerCase() ?? "";
+    const username = body.data.username?.trim().toLowerCase() ?? "";
+    const identifier = username || email;
+    if (!identifier) {
+      res.status(400).json({ error: "Enter a username or registered email address." });
+      return;
+    }
     const [user] = await db
       .select()
       .from(storeUsersTable)
-      .where(sql`lower(${storeUsersTable.email}) = ${email}`)
+      .where(
+        identifier.includes("@")
+          ? sql`lower(${storeUsersTable.email}) = ${identifier}`
+          : sql`lower(${storeUsersTable.username}) = ${identifier}`,
+      )
       .limit(1);
     if (!user) {
       res.status(404).json({
-        error: "No registered account was found with that email. Ask them to sign up first.",
+        error: "No account matched that username or email.",
       });
       return;
     }
@@ -232,6 +247,10 @@ router.post(
         storeroomId: req.storeroomId!,
         userId: user.id,
         role: body.data.role,
+        permissions:
+          body.data.role === "staff"
+            ? effectiveStoreAccess("staff", body.data.access)
+            : null,
       })
       .onConflictDoNothing()
       .returning({ id: storeroomMembershipsTable.id });
@@ -244,9 +263,15 @@ router.post(
       AddStoreMemberResponse.parse({
         id: user.id,
         name: user.name,
+        username: user.username,
         email: user.email,
         role: body.data.role,
         storeName: req.storeroom!.name,
+        mustChangePassword: user.mustChangePassword,
+        access: effectiveStoreAccess(
+          body.data.role,
+          body.data.role === "staff" ? body.data.access : null,
+        ),
       }),
     );
   },
@@ -277,165 +302,10 @@ router.get(
 router.post(
   "/users/invitations",
   requireRoles("owner", "admin", "supervisor"),
-  async (req, res): Promise<void> => {
-    const body = CreateStoreInvitationBody.safeParse(req.body);
-    if (!body.success) {
-      res.status(400).json({ error: body.error.message });
-      return;
-    }
-    const inviteeName = body.data.name.trim();
-    if (!inviteeName) {
-      res.status(400).json({ error: "Invitee name cannot be blank." });
-      return;
-    }
-    if (
-      req.storeMembership!.role === "supervisor" &&
-      body.data.role !== "staff"
-    ) {
-      res.status(403).json({
-        error: "Managers can invite team members as staff only.",
-      });
-      return;
-    }
-
-    const email = body.data.email.trim().toLowerCase();
-    const [existingUser] = await db
-      .select({ userId: storeUsersTable.id })
-      .from(storeUsersTable)
-      .where(sql`lower(${storeUsersTable.email}) = ${email}`)
-      .limit(1);
-    if (existingUser) {
-      res.status(409).json({
-        error: "An account already exists with that email. Add them as an existing team member instead.",
-      });
-      return;
-    }
-
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + INVITATION_LIFETIME_MS);
-    let invitation: typeof storeInvitationsTable.$inferSelect | undefined;
-    try {
-      invitation = await db.transaction(async (tx) => {
-        await tx
-          .update(storeInvitationsTable)
-          .set({ status: "expired" })
-          .where(
-            and(
-              eq(storeInvitationsTable.storeroomId, req.storeroomId!),
-              eq(storeInvitationsTable.email, email),
-              eq(storeInvitationsTable.status, "pending"),
-              lte(storeInvitationsTable.expiresAt, now),
-            ),
-          );
-
-        const [pending] = await tx
-          .select({ id: storeInvitationsTable.id })
-          .from(storeInvitationsTable)
-          .where(
-            and(
-              eq(storeInvitationsTable.storeroomId, req.storeroomId!),
-              eq(storeInvitationsTable.email, email),
-              eq(storeInvitationsTable.status, "pending"),
-              gt(storeInvitationsTable.expiresAt, now),
-            ),
-          )
-          .limit(1);
-        if (pending) return undefined;
-
-        const [created] = await tx
-          .insert(storeInvitationsTable)
-          .values({
-            storeroomId: req.storeroomId!,
-            email,
-            role: body.data.role,
-            createdByUserId: req.storeUser!.id,
-            expiresAt,
-          })
-          .returning();
-        return created;
-      });
-    } catch (error) {
-      const code =
-        typeof error === "object" && error !== null && "code" in error
-          ? (error as { code?: unknown }).code
-          : undefined;
-      if (code === "23505") {
-        res.status(409).json({ error: "An invitation is already pending for that email." });
-        return;
-      }
-      throw error;
-    }
-    if (!invitation) {
-      res.status(409).json({ error: "An invitation is already pending for that email." });
-      return;
-    }
-
-    let createdClerkInvitationId: string | undefined;
-    try {
-      const redirectUrl = signupRedirectUrl(req);
-      const clerkInvitation = await clerkClient.invitations.createInvitation({
-        emailAddress: email,
-        expiresInDays: 7,
-        publicMetadata: {
-          storeInvitationId: String(invitation.id),
-          inviteeName,
-        },
-        ...(redirectUrl ? { redirectUrl } : {}),
-      });
-      createdClerkInvitationId = clerkInvitation.id;
-      const [updated] = await db
-        .update(storeInvitationsTable)
-        .set({ clerkInvitationId: clerkInvitation.id })
-        .where(
-          and(
-            eq(storeInvitationsTable.id, invitation.id),
-            eq(storeInvitationsTable.storeroomId, req.storeroomId!),
-            eq(storeInvitationsTable.status, "pending"),
-          ),
-        )
-        .returning();
-      if (!updated) {
-        await clerkClient.invitations.revokeInvitation(clerkInvitation.id);
-        res.status(409).json({ error: "This invitation is no longer active." });
-        return;
-      }
-      res
-        .status(201)
-        .json(CreateStoreInvitationResponse.parse(invitationResponse(updated)));
-    } catch (error) {
-      if (createdClerkInvitationId) {
-        try {
-          await clerkClient.invitations.revokeInvitation(
-            createdClerkInvitationId,
-          );
-        } catch (revokeError) {
-          req.log.error(
-            { err: revokeError },
-            "Could not roll back Clerk invitation after a send failure",
-          );
-        }
-      }
-      try {
-        await db
-          .update(storeInvitationsTable)
-          .set({ status: "revoked", revokedAt: new Date() })
-          .where(
-            and(
-              eq(storeInvitationsTable.id, invitation.id),
-              eq(storeInvitationsTable.status, "pending"),
-            ),
-          );
-      } catch (updateError) {
-        req.log.error(
-          { err: updateError },
-          "Could not mark failed storeroom invitation inactive",
-        );
-      }
-      req.log.error({ err: error }, "Could not send storeroom invitation");
-      res.status(502).json({
-        error: "Could not send the invitation email. Please check the address and try again.",
-      });
-    }
+  async (_req, res): Promise<void> => {
+    res.status(410).json({
+      error: "Email invitations are disabled. Create a username and temporary password instead.",
+    });
   },
 );
 
@@ -551,7 +421,7 @@ router.patch(
     }
     const [membership] = await db
       .update(storeroomMembershipsTable)
-      .set({ role: body.data.role })
+      .set({ role: body.data.role, permissions: null })
       .where(
         and(
           eq(storeroomMembershipsTable.userId, params.data.userId),
@@ -585,7 +455,9 @@ router.patch(
       .select({
         id: storeUsersTable.id,
         name: storeUsersTable.name,
+        username: storeUsersTable.username,
         email: storeUsersTable.email,
+        mustChangePassword: storeUsersTable.mustChangePassword,
       })
       .from(storeUsersTable)
       .where(eq(storeUsersTable.id, membership.userId))
@@ -598,9 +470,108 @@ router.patch(
       UpdateStoreUserRoleResponse.parse({
         id: user.id,
         name: user.name,
+        username: user.username,
         email: user.email,
         role: membership.role,
         storeName: req.storeroom!.name,
+        mustChangePassword: user.mustChangePassword,
+        access: effectiveStoreAccess(membership.role, null),
+      }),
+    );
+  },
+);
+
+router.patch(
+  "/users/:userId/access",
+  requireRoles("owner", "admin", "supervisor"),
+  async (req, res): Promise<void> => {
+    const params = UpdateStoreUserAccessParams.safeParse(req.params);
+    const body = UpdateStoreUserAccessBody.safeParse(req.body);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const [membership] = await tx
+        .select({
+          role: storeroomMembershipsTable.role,
+          permissions: storeroomMembershipsTable.permissions,
+        })
+        .from(storeroomMembershipsTable)
+        .where(
+          and(
+            eq(storeroomMembershipsTable.userId, params.data.userId),
+            eq(storeroomMembershipsTable.storeroomId, req.storeroomId!),
+          ),
+        )
+        .for("update");
+      if (!membership) return { kind: "missing" as const };
+      if (membership.role !== "staff") return { kind: "not_staff" as const };
+
+      const [user] = await tx
+        .select({
+          id: storeUsersTable.id,
+          name: storeUsersTable.name,
+          username: storeUsersTable.username,
+          email: storeUsersTable.email,
+          mustChangePassword: storeUsersTable.mustChangePassword,
+        })
+        .from(storeUsersTable)
+        .where(eq(storeUsersTable.id, params.data.userId));
+      if (!user) return { kind: "missing" as const };
+
+      const previousAccess = effectiveStoreAccess("staff", membership.permissions);
+      const changedSections = Object.entries(body.data.access)
+        .flatMap(([section, newAccess]) => {
+          const previous = previousAccess[section as keyof typeof previousAccess];
+          return previous === newAccess
+            ? []
+            : [{ section, previousAccess: previous, newAccess }];
+        });
+      const [updated] = await tx
+        .update(storeroomMembershipsTable)
+        .set({ permissions: body.data.access })
+        .where(
+          and(
+            eq(storeroomMembershipsTable.userId, params.data.userId),
+            eq(storeroomMembershipsTable.storeroomId, req.storeroomId!),
+            eq(storeroomMembershipsTable.role, "staff"),
+          ),
+        )
+        .returning({ role: storeroomMembershipsTable.role });
+      if (updated && changedSections.length > 0) {
+        await tx.insert(securityEventsTable).values({
+          storeroomId: req.storeroomId!,
+          actorUserId: req.storeUser!.id,
+          targetUserId: user.id,
+          actorName: req.storeUser!.name,
+          targetName: user.name,
+          eventType: "staff_access_updated",
+          changedSections,
+        });
+      }
+      if (!updated) return { kind: "missing" as const };
+      return { kind: "updated" as const, updated, user };
+    });
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Team member not found in this outlet." });
+      return;
+    }
+    if (result.kind === "not_staff") {
+      res.status(400).json({ error: "Custom section access is available for staff accounts." });
+      return;
+    }
+    res.json(
+      UpdateStoreUserAccessResponse.parse({
+        ...result.user,
+        role: result.updated.role,
+        storeName: req.storeroom!.name,
+        access: effectiveStoreAccess("staff", body.data.access),
       }),
     );
   },
