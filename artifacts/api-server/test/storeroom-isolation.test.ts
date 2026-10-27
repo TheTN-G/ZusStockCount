@@ -1558,7 +1558,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   assert.equal(accessEvent.storeroomId, legacyRoomId);
   assert.equal(accessEvent.outletName, "Main Outlet");
   assert.deepEqual(accessEvent.changedSections, [
-    { section: "products", previousAccess: "view", newAccess: "none" },
+    { section: "products", previousAccess: "edit", newAccess: "none" },
   ]);
   assert.ok(Number.isFinite(Date.parse(accessEvent.createdAt)));
 
