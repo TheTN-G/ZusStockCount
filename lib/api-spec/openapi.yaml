@@ -1269,12 +1269,25 @@ components:
         complete: { type: boolean, enum: [true] }
     SecurityEvent:
       type: object
-      required: [id, eventType, actorName, targetName, createdAt]
+      required: [id, eventType, actorUserId, targetUserId, storeroomId, outletName, actorName, targetName, changedSections, createdAt]
       properties:
         id: { type: integer }
-        eventType: { type: string, enum: [password_reset_link_created] }
+        eventType: { type: string, enum: [password_reset_link_created, staff_access_updated] }
+        actorUserId: { type: string, nullable: true }
+        targetUserId: { type: string, nullable: true }
+        storeroomId: { type: integer }
+        outletName: { type: string }
         actorName: { type: string }
         targetName: { type: string }
+        changedSections:
+          type: array
+          items:
+            type: object
+            required: [section, previousAccess, newAccess]
+            properties:
+              section: { type: string }
+              previousAccess: { type: string, enum: [none, view, edit] }
+              newAccess: { type: string, enum: [none, view, edit] }
         createdAt: { type: string, format: date-time }
     StoreInvitationInput:
       type: object

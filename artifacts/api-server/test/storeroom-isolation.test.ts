@@ -16,6 +16,7 @@ import {
   stockMovementsTable,
   stockSectionsTable,
   stockTransfersTable,
+  deliveriesTable,
   securityEventsTable,
   passwordResetTokensTable,
   suppliersTable,
@@ -1524,6 +1525,79 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   });
   assert.equal(staffTeamRead.response.status, 403);
 
+  const staffAccess = {
+    dashboard: "view",
+    receiving: "edit",
+    deliveryRecords: "view",
+    products: "none",
+    suppliers: "view",
+    stockTransfers: "none",
+    purchaseOrders: "edit",
+    approvals: "view",
+    activity: "view",
+    stockCount: "edit",
+  };
+  const accessUpdate = await api(
+    legacyOwnerId,
+    `/users/${legacyStaffId}/access`,
+    { method: "PATCH", storeroomId: legacyRoomId, body: { access: staffAccess } },
+  );
+  assert.equal(accessUpdate.response.status, 200, JSON.stringify(accessUpdate.data));
+  const accessEvents = await api(legacyOwnerId, "/users/security-events", {
+    storeroomId: legacyRoomId,
+  });
+  assert.equal(accessEvents.response.status, 200);
+  const accessEvent = accessEvents.data.find(
+    ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
+      eventType === "staff_access_updated" && targetUserId === legacyStaffId,
+  );
+  assert.ok(accessEvent, JSON.stringify(accessEvents.data));
+  assert.equal(accessEvent.actorUserId, legacyOwnerId);
+  assert.equal(accessEvent.actorName, legacyOwnerId);
+  assert.equal(accessEvent.targetName, legacyStaffId);
+  assert.equal(accessEvent.storeroomId, legacyRoomId);
+  assert.equal(accessEvent.outletName, "Main Outlet");
+  assert.deepEqual(accessEvent.changedSections, [
+    { section: "products", previousAccess: "view", newAccess: "none" },
+  ]);
+  assert.ok(Number.isFinite(Date.parse(accessEvent.createdAt)));
+
+  const unchangedAccessUpdate = await api(
+    legacyOwnerId,
+    `/users/${legacyStaffId}/access`,
+    { method: "PATCH", storeroomId: legacyRoomId, body: { access: staffAccess } },
+  );
+  assert.equal(unchangedAccessUpdate.response.status, 200);
+  const repeatedAccessEvents = await api(
+    legacyOwnerId,
+    "/users/security-events",
+    { storeroomId: legacyRoomId },
+  );
+  assert.equal(
+    repeatedAccessEvents.data.filter(
+      ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
+        eventType === "staff_access_updated" && targetUserId === legacyStaffId,
+    ).length,
+    1,
+  );
+  const otherOutletAccessEvents = await api(
+    secondOwnerId,
+    "/users/security-events",
+    { storeroomId: secondRoomId },
+  );
+  assert.ok(
+    !otherOutletAccessEvents.data.some(
+      ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
+        eventType === "staff_access_updated" && targetUserId === legacyStaffId,
+    ),
+  );
+  const crossOutletAccessUpdate = await api(
+    legacyOwnerId,
+    `/users/${secondStaffId}/access`,
+    { method: "PATCH", storeroomId: legacyRoomId, body: { access: staffAccess } },
+  );
+  assert.equal(crossOutletAccessUpdate.response.status, 404);
+
   const lowStockProduct = await api(legacyOwnerId, `/products/${productA.id}`, {
     method: "PATCH",
     storeroomId: legacyRoomId,
@@ -1657,6 +1731,10 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       });
       assert.equal(pendingRequest.response.status, 201, JSON.stringify(pendingRequest.data));
       fixtureOrderIds.push(pendingRequest.data.id);
+      await db
+        .update(purchaseOrdersTable)
+        .set({ status: "pending" })
+        .where(eq(purchaseOrdersTable.id, pendingRequest.data.id));
     }
   }
 
@@ -1697,7 +1775,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       productCount: 2,
       lowStockCount: 1,
       expiringSoonCount: 3,
-      pendingApprovals: 3,
+      pendingApprovals: 2,
     },
   );
   assert.deepEqual(
@@ -1711,7 +1789,7 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       productCount: 2,
       lowStockCount: 0,
       expiringSoonCount: 0,
-      pendingApprovals: 2,
+      pendingApprovals: 1,
     },
   );
   assert.equal(dashboardA.data.recentMovements.length, 6);
@@ -2186,4 +2264,559 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     { method: "DELETE", storeroomId: secondRoomId },
   );
   assert.equal(deleteUnusedCategory.response.status, 204);
+
+  const auditSiblingOutlet = await api(legacyOwnerId, "/outlets", {
+    method: "POST",
+    body: { name: `${fixtureTag} Access Audit Outlet` },
+  });
+  assert.equal(auditSiblingOutlet.response.status, 201, JSON.stringify(auditSiblingOutlet.data));
+  const auditSiblingOutletId = auditSiblingOutlet.data.id as number;
+  fixtureStoreroomIds.push(auditSiblingOutletId);
+  const siblingStaffMembership = await api(legacyOwnerId, "/users", {
+    method: "POST",
+    storeroomId: auditSiblingOutletId,
+    body: {
+      email: `${legacyStaffId}@example.invalid`,
+      role: "staff",
+      access: staffAccess,
+    },
+  });
+  assert.equal(siblingStaffMembership.response.status, 201, JSON.stringify(siblingStaffMembership.data));
+  const siblingAccess = { ...staffAccess, products: "edit" };
+  const siblingAccessUpdate = await api(
+    legacyOwnerId,
+    `/users/${legacyStaffId}/access`,
+    {
+      method: "PATCH",
+      storeroomId: auditSiblingOutletId,
+      body: { access: siblingAccess },
+    },
+  );
+  assert.equal(siblingAccessUpdate.response.status, 200, JSON.stringify(siblingAccessUpdate.data));
+  const siblingAccessEvents = await api(
+    legacyOwnerId,
+    "/users/security-events",
+    { storeroomId: auditSiblingOutletId },
+  );
+  assert.ok(
+    siblingAccessEvents.data.some(
+      ({
+        eventType,
+        targetUserId,
+        storeroomId,
+        changedSections,
+      }: {
+        eventType: string;
+        targetUserId: string;
+        storeroomId: number;
+        changedSections: { section: string; previousAccess: string; newAccess: string }[];
+      }) =>
+        eventType === "staff_access_updated" &&
+        targetUserId === legacyStaffId &&
+        storeroomId === auditSiblingOutletId &&
+        changedSections.some(
+          (change) =>
+            change.section === "products" &&
+            change.previousAccess === "none" &&
+            change.newAccess === "edit",
+        ),
+    ),
+  );
+  const originalOutletEventsAfterSiblingUpdate = await api(
+    legacyOwnerId,
+    "/users/security-events",
+    { storeroomId: legacyRoomId },
+  );
+  assert.equal(
+    originalOutletEventsAfterSiblingUpdate.data.filter(
+      ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
+        eventType === "staff_access_updated" && targetUserId === legacyStaffId,
+    ).length,
+    1,
+    "A sibling outlet's permission change must not appear in the original outlet's audit history.",
+  );
+
+  const emptyStaffAccess = {
+    dashboard: "none",
+    receiving: "none",
+    deliveryRecords: "none",
+    products: "none",
+    suppliers: "none",
+    stockTransfers: "none",
+    purchaseOrders: "none",
+    approvals: "none",
+    activity: "none",
+    stockCount: "none",
+  };
+  const setStaffAccess = async (
+    storeroomId: number,
+    access: Record<string, string>,
+  ) => {
+    const updated = await api(
+      legacyOwnerId,
+      `/users/${legacyStaffId}/access`,
+      { method: "PATCH", storeroomId, body: { access } },
+    );
+    assert.equal(updated.response.status, 200, JSON.stringify(updated.data));
+  };
+  const productBody = (name: string) => ({
+    name,
+    category: "food",
+    unit: "case",
+    bundleSize: 1,
+    minStock: 0,
+  });
+
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal((await api(legacyStaffId, "/products")).response.status, 403);
+  assert.equal(
+    (await api(legacyStaffId, "/products", {
+      method: "POST",
+      body: productBody(`${fixtureTag}-blocked-product`),
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, { ...emptyStaffAccess, products: "view" });
+  assert.equal((await api(legacyStaffId, "/products")).response.status, 200);
+  assert.equal(
+    (await api(legacyStaffId, `/products/${productA.id}`, {
+      method: "PATCH",
+      body: { minStock: 18 },
+    })).response.status,
+    403,
+  );
+  assert.equal(
+    (await api(legacyStaffId, "/products", {
+      method: "POST",
+      body: productBody(`${fixtureTag}-view-only-product`),
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, { ...emptyStaffAccess, products: "edit" });
+  const staffProduct = await api(legacyStaffId, "/products", {
+    method: "POST",
+    body: productBody(`${fixtureTag}-staff-added-product`),
+  });
+  assert.equal(staffProduct.response.status, 201, JSON.stringify(staffProduct.data));
+  fixtureProductIds.push(staffProduct.data.id);
+  assert.equal(
+    (await api(legacyStaffId, `/products/${productA.id}`, {
+      method: "PATCH",
+      body: { minStock: 18 },
+    })).response.status,
+    200,
+  );
+  const removableSection = await api(legacyOwnerId, "/stock-sections", {
+    method: "POST",
+    storeroomId: legacyRoomId,
+    body: { name: `${fixtureTag}-staff-delete-protection` },
+  });
+  assert.equal(removableSection.response.status, 201, JSON.stringify(removableSection.data));
+  assert.equal(
+    (await api(legacyStaffId, `/stock-sections/${removableSection.data.id}`, {
+      method: "DELETE",
+    })).response.status,
+    403,
+    "Even edit access must not allow staff to delete records.",
+  );
+  const stillPresentSection = await api(legacyOwnerId, "/stock-sections", {
+    storeroomId: legacyRoomId,
+  });
+  assert.ok(stillPresentSection.data.some(({ id }: { id: number }) => id === removableSection.data.id));
+
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal((await api(legacyStaffId, "/stock-counts")).response.status, 403);
+  assert.equal(
+    (await api(legacyStaffId, "/stock-counts", {
+      method: "POST",
+      body: { scope: "all" },
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, { ...emptyStaffAccess, stockCount: "view" });
+  assert.equal((await api(legacyStaffId, "/stock-counts")).response.status, 200);
+  assert.equal(
+    (await api(legacyStaffId, "/stock-counts", {
+      method: "POST",
+      body: { scope: "all" },
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, { ...emptyStaffAccess, stockCount: "edit" });
+  const staffCount = await api(legacyStaffId, "/stock-counts", {
+    method: "POST",
+    body: { scope: "all" },
+  });
+  assert.equal(staffCount.response.status, 201, JSON.stringify(staffCount.data));
+  fixtureCountIds.push(staffCount.data.id);
+  assert.equal(
+    (await api(legacyStaffId, `/stock-counts/${staffCount.data.id}`, {
+      method: "DELETE",
+    })).response.status,
+    403,
+  );
+
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal((await api(legacyStaffId, "/deliveries")).response.status, 403);
+  assert.equal(
+    (await api(legacyStaffId, "/deliveries", {
+      method: "POST",
+      body: { lines: [{ productId: productA.id, quantity: 1 }] },
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    receiving: "view",
+    deliveryRecords: "view",
+  });
+  assert.equal((await api(legacyStaffId, "/deliveries")).response.status, 200);
+  assert.equal(
+    (await api(legacyStaffId, "/deliveries", {
+      method: "POST",
+      body: { lines: [{ productId: productA.id, quantity: 1 }] },
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    receiving: "edit",
+    deliveryRecords: "view",
+  });
+  const staffDelivery = await api(legacyStaffId, "/deliveries", {
+    method: "POST",
+    body: { lines: [{ productId: productA.id, quantity: 1 }] },
+  });
+  assert.equal(staffDelivery.response.status, 201, JSON.stringify(staffDelivery.data));
+
+  const receiptAccessOrder = await api(legacyOwnerId, "/purchase-orders", {
+    storeroomId: legacyRoomId,
+    method: "POST",
+    body: { lines: [{ productId: productA.id, quantity: 1 }] },
+  });
+  assert.equal(receiptAccessOrder.response.status, 201, JSON.stringify(receiptAccessOrder.data));
+  fixtureOrderIds.push(receiptAccessOrder.data.id);
+  await db
+    .update(purchaseOrdersTable)
+    .set({ status: "issued" })
+    .where(eq(purchaseOrdersTable.id, receiptAccessOrder.data.id));
+  const receiptBody = {
+    lines: [{ productId: productA.id, receivedQuantity: 0.25 }],
+  };
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    purchaseOrders: "edit",
+  });
+  assert.equal(
+    (await api(
+      legacyStaffId,
+      `/purchase-orders/${receiptAccessOrder.data.id}/receipts`,
+      { method: "POST", body: receiptBody },
+    )).response.status,
+    403,
+    "Purchase-order edit access alone must not authorize a stock receipt.",
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    receiving: "view",
+  });
+  assert.equal(
+    (await api(
+      legacyStaffId,
+      `/purchase-orders/${receiptAccessOrder.data.id}/receipts`,
+      { method: "POST", body: receiptBody },
+    )).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    receiving: "edit",
+  });
+  const staffReceipt = await api(
+    legacyStaffId,
+    `/purchase-orders/${receiptAccessOrder.data.id}/receipts`,
+    { method: "POST", body: receiptBody },
+  );
+  assert.equal(staffReceipt.response.status, 200, JSON.stringify(staffReceipt.data));
+
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal((await api(legacyStaffId, "/purchase-orders")).response.status, 403);
+  assert.equal(
+    (await api(legacyStaffId, "/purchase-orders", {
+      method: "POST",
+      body: { lines: [{ productId: productA.id, quantity: 1 }] },
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    purchaseOrders: "view",
+  });
+  assert.equal((await api(legacyStaffId, "/purchase-orders")).response.status, 200);
+  assert.equal(
+    (await api(legacyStaffId, "/purchase-orders", {
+      method: "POST",
+      body: { lines: [{ productId: productA.id, quantity: 1 }] },
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    purchaseOrders: "edit",
+  });
+  const staffOrder = await api(legacyStaffId, "/purchase-orders", {
+    method: "POST",
+    body: { lines: [{ productId: productA.id, quantity: 1 }] },
+  });
+  assert.equal(staffOrder.response.status, 201, JSON.stringify(staffOrder.data));
+  fixtureOrderIds.push(staffOrder.data.id);
+  assert.equal(
+    (await api(legacyStaffId, `/purchase-orders/${staffOrder.data.id}`, {
+      method: "DELETE",
+    })).response.status,
+    403,
+  );
+
+  const pendingApprovalOrder = await api(legacyOwnerId, "/purchase-orders", {
+    storeroomId: legacyRoomId,
+    method: "POST",
+    body: { lines: [{ productId: productA.id, quantity: 1 }] },
+  });
+  assert.equal(pendingApprovalOrder.response.status, 201, JSON.stringify(pendingApprovalOrder.data));
+  fixtureOrderIds.push(pendingApprovalOrder.data.id);
+  await db
+    .update(purchaseOrdersTable)
+    .set({ status: "pending" })
+    .where(eq(purchaseOrdersTable.id, pendingApprovalOrder.data.id));
+  const approvalDecision = {
+    decision: "approved",
+  };
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal(
+    (await api(legacyStaffId, `/purchase-orders/${pendingApprovalOrder.data.id}/decision`, {
+      method: "POST",
+      body: approvalDecision,
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    approvals: "view",
+  });
+  assert.equal(
+    (await api(legacyStaffId, `/purchase-orders/${pendingApprovalOrder.data.id}/decision`, {
+      method: "POST",
+      body: approvalDecision,
+    })).response.status,
+    403,
+  );
+  const approvalsVisiblePurchaseOrders = await api(legacyStaffId, "/purchase-orders");
+  assert.equal(approvalsVisiblePurchaseOrders.response.status, 200);
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    approvals: "edit",
+  });
+  const approvedByStaff = await api(
+    legacyStaffId,
+    `/purchase-orders/${pendingApprovalOrder.data.id}/decision`,
+    { method: "POST", body: approvalDecision },
+  );
+  assert.equal(approvedByStaff.response.status, 200, JSON.stringify(approvedByStaff.data));
+
+  const setProductTemperatureRule = await api(
+    legacyOwnerId,
+    `/products/${productA.id}`,
+    {
+      method: "PATCH",
+      storeroomId: legacyRoomId,
+      body: { tempMinC: 2, tempMaxC: 8 },
+    },
+  );
+  assert.equal(setProductTemperatureRule.response.status, 200, JSON.stringify(setProductTemperatureRule.data));
+  const heldDelivery = await api(legacyOwnerId, "/deliveries", {
+    storeroomId: legacyRoomId,
+    method: "POST",
+    body: {
+      lines: [{ productId: productA.id, quantity: 0.1, tempC: 10 }],
+    },
+  });
+  assert.equal(heldDelivery.response.status, 201, JSON.stringify(heldDelivery.data));
+  assert.equal(heldDelivery.data.status, "pending_approval");
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal(
+    (await api(
+      legacyStaffId,
+      `/deliveries/${heldDelivery.data.id}/decision`,
+      { method: "POST", body: { decision: "accepted" } },
+    )).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    approvals: "view",
+  });
+  assert.equal(
+    (await api(
+      legacyStaffId,
+      `/deliveries/${heldDelivery.data.id}/decision`,
+      { method: "POST", body: { decision: "accepted" } },
+    )).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    approvals: "edit",
+  });
+  const approvedByStaffDelivery = await api(
+    legacyStaffId,
+    `/deliveries/${heldDelivery.data.id}/decision`,
+    { method: "POST", body: { decision: "accepted" } },
+  );
+  assert.equal(
+    approvedByStaffDelivery.response.status,
+    200,
+    JSON.stringify(approvedByStaffDelivery.data),
+  );
+
+  const transferDestinationProduct = await createProduct(
+    legacyOwnerId,
+    `${fixtureTag}-staff-transfer-destination`,
+    auditSiblingOutletId,
+  );
+  const sourceTransferOptions = await api(
+    legacyOwnerId,
+    `/stock-transfers/options?destinationOutletId=${auditSiblingOutletId}&productId=${productA.id}`,
+    { storeroomId: legacyRoomId },
+  );
+  assert.equal(sourceTransferOptions.response.status, 200, JSON.stringify(sourceTransferOptions.data));
+  const sourceTransferSection = sourceTransferOptions.data.sourceSections.find(
+    ({ quantity }: { quantity: number }) => quantity > 0,
+  );
+  const destinationTransferProduct = sourceTransferOptions.data.destinationProducts.find(
+    ({ id }: { id: number }) => id === transferDestinationProduct.id,
+  );
+  assert.ok(sourceTransferSection);
+  assert.ok(destinationTransferProduct);
+  const destinationTransferSection = destinationTransferProduct.sections[0];
+  const transferBody = {
+    clientKey: crypto.randomUUID(),
+    destinationOutletId: auditSiblingOutletId,
+    productId: productA.id,
+    destinationProductId: transferDestinationProduct.id,
+    sourceSectionId: sourceTransferSection.id,
+    destinationSectionId: destinationTransferSection.id,
+    quantity: 0.01,
+    expectedSourceQuantity: sourceTransferSection.quantity,
+    expectedDestinationQuantity: destinationTransferSection.quantity,
+  };
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal((await api(legacyStaffId, "/stock-transfers")).response.status, 403);
+  assert.equal(
+    (await api(legacyStaffId, "/stock-transfers", {
+      method: "POST",
+      body: transferBody,
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    stockTransfers: "view",
+  });
+  assert.equal((await api(legacyStaffId, "/stock-transfers")).response.status, 200);
+  assert.equal(
+    (await api(legacyStaffId, "/stock-transfers", {
+      method: "POST",
+      body: transferBody,
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    stockTransfers: "edit",
+  });
+  await setStaffAccess(auditSiblingOutletId, {
+    ...emptyStaffAccess,
+    stockTransfers: "view",
+  });
+  assert.equal(
+    (await api(
+      legacyStaffId,
+      `/stock-transfers/options?destinationOutletId=${auditSiblingOutletId}&productId=${productA.id}`,
+    )).response.status,
+    403,
+    "Source edit access must not bypass the destination outlet's view-only transfer permission.",
+  );
+  assert.equal(
+    (await api(legacyStaffId, "/stock-transfers", {
+      method: "POST",
+      body: transferBody,
+    })).response.status,
+    403,
+  );
+  await setStaffAccess(auditSiblingOutletId, {
+    ...emptyStaffAccess,
+    stockTransfers: "edit",
+  });
+  const transferOptionsAsStaff = await api(
+    legacyStaffId,
+    `/stock-transfers/options?destinationOutletId=${auditSiblingOutletId}&productId=${productA.id}`,
+  );
+  assert.equal(transferOptionsAsStaff.response.status, 200, JSON.stringify(transferOptionsAsStaff.data));
+  const delegatedStaffTransfer = await api(legacyStaffId, "/stock-transfers", {
+    method: "POST",
+    body: transferBody,
+  });
+  assert.equal(delegatedStaffTransfer.response.status, 201, JSON.stringify(delegatedStaffTransfer.data));
+  fixtureTransferIds.push(delegatedStaffTransfer.data.id);
+  assert.equal(
+    (await api(legacyStaffId, `/stock-transfers/${delegatedStaffTransfer.data.id}`, {
+      method: "DELETE",
+    })).response.status,
+    403,
+  );
+
+  await setStaffAccess(legacyRoomId, emptyStaffAccess);
+  assert.equal((await api(legacyStaffId, "/inventory/movements")).response.status, 403);
+  await setStaffAccess(legacyRoomId, { ...emptyStaffAccess, activity: "view" });
+  assert.equal((await api(legacyStaffId, "/inventory/movements")).response.status, 200);
+  await setStaffAccess(legacyRoomId, { ...emptyStaffAccess, activity: "edit" });
+  assert.equal((await api(legacyStaffId, "/inventory/movements")).response.status, 200);
+  assert.equal(
+    (await api(legacyStaffId, "/users/security-events")).response.status,
+    403,
+    "Activity access must not expose manager-only security history.",
+  );
+  assert.equal(
+    (await api(legacyStaffId, "/inventory/movements/1", {
+      method: "DELETE",
+    })).response.status,
+    403,
+  );
+
+  await setStaffAccess(legacyRoomId, {
+    ...emptyStaffAccess,
+    products: "view",
+  });
+  const mainOutletViewAccess = await api(legacyStaffId, "/products", {
+    storeroomId: legacyRoomId,
+  });
+  const siblingOutletProductAccess = await api(legacyStaffId, "/products", {
+    storeroomId: auditSiblingOutletId,
+  });
+  assert.equal(mainOutletViewAccess.response.status, 200);
+  assert.equal(siblingOutletProductAccess.response.status, 200);
+  assert.ok(
+    siblingOutletProductAccess.data.some(
+      ({ id }: { id: number }) => id === transferDestinationProduct.id,
+    ),
+  );
+  const requestToUnassignedOutlet = await api(legacyStaffId, "/products", {
+    storeroomId: secondRoomId,
+  });
+  assert.equal(requestToUnassignedOutlet.response.status, 200);
+  assert.equal(
+    requestToUnassignedOutlet.response.headers.get("X-Active-Outlet-Id"),
+    String(legacyRoomId),
+    "An outlet ID without membership must not switch the authenticated staff request.",
+  );
 });

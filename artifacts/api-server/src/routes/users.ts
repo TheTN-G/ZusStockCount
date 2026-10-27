@@ -26,6 +26,7 @@ import {
   securityEventsTable,
   storeUsersTable,
   storeroomMembershipsTable,
+  storeroomsTable,
 } from "@workspace/db";
 import { requireRoles } from "../middlewares/storeUser";
 import { effectiveStoreAccess } from "../lib/storeAccess";
@@ -87,9 +88,18 @@ router.get(
         eventType: securityEventsTable.eventType,
         actorName: securityEventsTable.actorName,
         targetName: securityEventsTable.targetName,
+        actorUserId: securityEventsTable.actorUserId,
+        targetUserId: securityEventsTable.targetUserId,
+        storeroomId: securityEventsTable.storeroomId,
+        outletName: storeroomsTable.name,
+        changedSections: securityEventsTable.changedSections,
         createdAt: securityEventsTable.createdAt,
       })
       .from(securityEventsTable)
+      .innerJoin(
+        storeroomsTable,
+        eq(storeroomsTable.id, securityEventsTable.storeroomId),
+      )
       .where(eq(securityEventsTable.storeroomId, req.storeroomId!))
       .orderBy(desc(securityEventsTable.createdAt))
       .limit(100);
@@ -176,6 +186,7 @@ router.post(
         actorName: req.storeUser!.name,
         targetName: target.name,
         eventType: "password_reset_link_created",
+        changedSections: [],
       });
     });
 
@@ -485,60 +496,80 @@ router.patch(
       return;
     }
 
-    const [membership] = await db
-      .select({
-        role: storeroomMembershipsTable.role,
-      })
-      .from(storeroomMembershipsTable)
-      .where(
-        and(
-          eq(storeroomMembershipsTable.userId, params.data.userId),
-          eq(storeroomMembershipsTable.storeroomId, req.storeroomId!),
-        ),
-      );
-    if (!membership) {
+    const result = await db.transaction(async (tx) => {
+      const [membership] = await tx
+        .select({
+          role: storeroomMembershipsTable.role,
+          permissions: storeroomMembershipsTable.permissions,
+        })
+        .from(storeroomMembershipsTable)
+        .where(
+          and(
+            eq(storeroomMembershipsTable.userId, params.data.userId),
+            eq(storeroomMembershipsTable.storeroomId, req.storeroomId!),
+          ),
+        )
+        .for("update");
+      if (!membership) return { kind: "missing" as const };
+      if (membership.role !== "staff") return { kind: "not_staff" as const };
+
+      const [user] = await tx
+        .select({
+          id: storeUsersTable.id,
+          name: storeUsersTable.name,
+          username: storeUsersTable.username,
+          email: storeUsersTable.email,
+          mustChangePassword: storeUsersTable.mustChangePassword,
+        })
+        .from(storeUsersTable)
+        .where(eq(storeUsersTable.id, params.data.userId));
+      if (!user) return { kind: "missing" as const };
+
+      const previousAccess = effectiveStoreAccess("staff", membership.permissions);
+      const changedSections = Object.entries(body.data.access)
+        .flatMap(([section, newAccess]) => {
+          const previous = previousAccess[section as keyof typeof previousAccess];
+          return previous === newAccess
+            ? []
+            : [{ section, previousAccess: previous, newAccess }];
+        });
+      const [updated] = await tx
+        .update(storeroomMembershipsTable)
+        .set({ permissions: body.data.access })
+        .where(
+          and(
+            eq(storeroomMembershipsTable.userId, params.data.userId),
+            eq(storeroomMembershipsTable.storeroomId, req.storeroomId!),
+            eq(storeroomMembershipsTable.role, "staff"),
+          ),
+        )
+        .returning({ role: storeroomMembershipsTable.role });
+      if (updated && changedSections.length > 0) {
+        await tx.insert(securityEventsTable).values({
+          storeroomId: req.storeroomId!,
+          actorUserId: req.storeUser!.id,
+          targetUserId: user.id,
+          actorName: req.storeUser!.name,
+          targetName: user.name,
+          eventType: "staff_access_updated",
+          changedSections,
+        });
+      }
+      if (!updated) return { kind: "missing" as const };
+      return { kind: "updated" as const, updated, user };
+    });
+    if (result.kind === "missing") {
       res.status(404).json({ error: "Team member not found in this outlet." });
       return;
     }
-    if (membership.role !== "staff") {
+    if (result.kind === "not_staff") {
       res.status(400).json({ error: "Custom section access is available for staff accounts." });
-      return;
-    }
-
-    const [updatedMembership] = await db
-      .update(storeroomMembershipsTable)
-      .set({ permissions: body.data.access })
-      .where(
-        and(
-          eq(storeroomMembershipsTable.userId, params.data.userId),
-          eq(storeroomMembershipsTable.storeroomId, req.storeroomId!),
-          eq(storeroomMembershipsTable.role, "staff"),
-        ),
-      )
-      .returning({ role: storeroomMembershipsTable.role });
-    if (!updatedMembership) {
-      res.status(404).json({ error: "Team member not found in this outlet." });
-      return;
-    }
-
-    const [user] = await db
-      .select({
-        id: storeUsersTable.id,
-        name: storeUsersTable.name,
-        username: storeUsersTable.username,
-        email: storeUsersTable.email,
-        mustChangePassword: storeUsersTable.mustChangePassword,
-      })
-      .from(storeUsersTable)
-      .where(eq(storeUsersTable.id, params.data.userId));
-    if (!user) {
-      res.status(404).json({ error: "Team member account not found." });
       return;
     }
     res.json(
       UpdateStoreUserAccessResponse.parse({
-        ...user,
-        role: updatedMembership.role,
+        ...result.user,
+        role: result.updated.role,
         storeName: req.storeroom!.name,
         access: effectiveStoreAccess("staff", body.data.access),
       }),

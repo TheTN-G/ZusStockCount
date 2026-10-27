@@ -44,6 +44,24 @@ test("approvals access allows review lists without granting purchase-order edits
   );
 });
 
+test("purchase-order receipts require receiving access instead of purchase-order access", () => {
+  const orderEditor = { purchaseOrders: "edit", receiving: "none" };
+  const receivingViewer = { purchaseOrders: "none", receiving: "view" };
+  const receivingEditor = { purchaseOrders: "none", receiving: "edit" };
+  assert.equal(
+    staffMayAccessRequest("/purchase-orders/7/receipts", "POST", orderEditor),
+    false,
+  );
+  assert.equal(
+    staffMayAccessRequest("/purchase-orders/7/receipts", "POST", receivingViewer),
+    false,
+  );
+  assert.equal(
+    staffMayAccessRequest("/purchase-orders/7/receipts", "POST", receivingEditor),
+    true,
+  );
+});
+
 test("owners and managers are not restricted by staff section permissions", () => {
   assert.equal(accessDenialForRequest("owner", {}, "/products", "DELETE"), null);
   assert.equal(accessDenialForRequest("supervisor", {}, "/products", "POST"), null);

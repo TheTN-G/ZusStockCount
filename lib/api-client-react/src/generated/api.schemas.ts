@@ -262,13 +262,45 @@ export type SecurityEventEventType = typeof SecurityEventEventType[keyof typeof 
 
 export const SecurityEventEventType = {
   password_reset_link_created: 'password_reset_link_created',
+  staff_access_updated: 'staff_access_updated',
 } as const;
+
+export type SecurityEventChangedSectionsItemPreviousAccess = typeof SecurityEventChangedSectionsItemPreviousAccess[keyof typeof SecurityEventChangedSectionsItemPreviousAccess];
+
+
+export const SecurityEventChangedSectionsItemPreviousAccess = {
+  none: 'none',
+  view: 'view',
+  edit: 'edit',
+} as const;
+
+export type SecurityEventChangedSectionsItemNewAccess = typeof SecurityEventChangedSectionsItemNewAccess[keyof typeof SecurityEventChangedSectionsItemNewAccess];
+
+
+export const SecurityEventChangedSectionsItemNewAccess = {
+  none: 'none',
+  view: 'view',
+  edit: 'edit',
+} as const;
+
+export type SecurityEventChangedSectionsItem = {
+  section: string;
+  previousAccess: SecurityEventChangedSectionsItemPreviousAccess;
+  newAccess: SecurityEventChangedSectionsItemNewAccess;
+};
 
 export interface SecurityEvent {
   id: number;
   eventType: SecurityEventEventType;
+  /** @nullable */
+  actorUserId: string | null;
+  /** @nullable */
+  targetUserId: string | null;
+  storeroomId: number;
+  outletName: string;
   actorName: string;
   targetName: string;
+  changedSections: SecurityEventChangedSectionsItem[];
   createdAt: string;
 }
 

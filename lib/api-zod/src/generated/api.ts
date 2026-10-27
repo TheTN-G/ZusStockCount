@@ -683,9 +683,18 @@ export const CompleteStoreUserPasswordResetResponse = zod.object({
  */
 export const ListStoreSecurityEventsResponseItem = zod.object({
   "id": zod.number().int(),
-  "eventType": zod.enum(['password_reset_link_created']),
+  "eventType": zod.enum(['password_reset_link_created', 'staff_access_updated']),
+  "actorUserId": zod.string().nullable(),
+  "targetUserId": zod.string().nullable(),
+  "storeroomId": zod.number().int(),
+  "outletName": zod.string(),
   "actorName": zod.string(),
   "targetName": zod.string(),
+  "changedSections": zod.array(zod.object({
+  "section": zod.string(),
+  "previousAccess": zod.enum(['none', 'view', 'edit']),
+  "newAccess": zod.enum(['none', 'view', 'edit'])
+})),
   "createdAt": zod.coerce.date()
 })
 export const ListStoreSecurityEventsResponse = zod.array(ListStoreSecurityEventsResponseItem)

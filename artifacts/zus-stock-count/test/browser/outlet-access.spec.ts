@@ -45,6 +45,18 @@ function currentUser(role: TestRole, outletList = outlets) {
       ...outlet,
       role: isOwner ? 'owner' : outlet.role,
     })),
+    access: {
+      dashboard: 'edit',
+      receiving: 'edit',
+      deliveryRecords: 'edit',
+      products: 'edit',
+      suppliers: 'edit',
+      stockTransfers: 'edit',
+      purchaseOrders: 'edit',
+      approvals: 'edit',
+      activity: 'edit',
+      stockCount: 'edit',
+    },
   };
 }
 
@@ -93,7 +105,8 @@ test('outlet manager can edit only the active assigned outlet and cannot access 
 
   await page.goto('/outlets');
   await expect(page.getByRole('heading', { name: 'Outlet details' })).toBeVisible();
-  await expect(page.getByTestId('link-nav-outlets')).toBeVisible();
+  await page.getByRole('button', { name: 'Outlet Manager profile' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Manage outlets' })).toBeVisible();
   await expect(page.getByTestId('link-nav-workspace-settings')).toHaveCount(0);
   await expect(page.getByTestId('button-add-outlet')).toHaveCount(0);
   await expect(page.getByTestId('button-rename-outlet-11')).toHaveCount(0);
@@ -118,7 +131,7 @@ test('outlet manager can edit only the active assigned outlet and cannot access 
   });
 
   await page.goto('/settings');
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('This section is not available');
   await expect(page.getByTestId('form-workspace-settings')).toHaveCount(0);
   await expect(page.getByTestId('input-workspace-contact-email')).toHaveCount(0);
 });
@@ -128,8 +141,10 @@ test('workspace owner can rename any outlet and the new name appears in the list
 
   await page.goto('/outlets');
   await expect(page.getByRole('heading', { name: 'Your outlets' })).toBeVisible();
-  await expect(page.getByTestId('link-nav-outlets')).toBeVisible();
-  await expect(page.getByTestId('link-nav-workspace-settings')).toBeVisible();
+  await page.getByRole('button', { name: 'Workspace Owner profile' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Manage outlets' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Workspace settings' })).toBeVisible();
+  await page.getByRole('button', { name: 'Workspace Owner profile' }).click();
 
   await page.getByTestId('button-add-outlet').click();
   await expect(page.getByTestId('form-create-outlet')).toBeVisible();
@@ -146,7 +161,100 @@ test('workspace owner can rename any outlet and the new name appears in the list
   await expect(page.getByTestId('text-outlet-name-22')).toHaveText('Airport Annex');
   await expect(page.getByTestId('select-active-outlet').locator('option', { hasText: 'Airport Annex' })).toBeAttached();
 
-  await page.getByTestId('link-nav-workspace-settings').click();
+  await page.getByRole('button', { name: 'Workspace Owner profile' }).click();
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click();
   await expect(page.getByTestId('form-workspace-settings')).toBeVisible();
   await expect(page.getByTestId('input-workspace-contact-email')).toHaveValue('business@example.com');
+});
+
+const allStaffSections = {
+  dashboard: 'none',
+  receiving: 'none',
+  deliveryRecords: 'none',
+  products: 'none',
+  suppliers: 'none',
+  stockTransfers: 'none',
+  purchaseOrders: 'none',
+  approvals: 'none',
+  activity: 'none',
+  stockCount: 'none',
+} as const;
+
+function staffUser(access: Record<string, string>) {
+  const outlet = {
+    id: 31,
+    name: 'Staff Outlet',
+    role: 'staff',
+    contactEmail: null,
+    contactPhone: null,
+    businessAddress: null,
+  };
+  return {
+    id: 'staff-user',
+    name: 'Outlet Staff',
+    email: 'staff@example.com',
+    role: 'staff',
+    storeName: outlet.name,
+    activeStoreroomId: outlet.id,
+    storerooms: [{ id: outlet.id, name: outlet.name, role: 'staff' }],
+    activeOutletId: outlet.id,
+    workspace: {
+      id: 9,
+      name: 'Staff Workspace',
+      contactEmail: null,
+      contactPhone: null,
+      businessAddress: null,
+      setupComplete: true,
+      isOwner: false,
+    },
+    outlets: [outlet],
+    access,
+  };
+}
+
+async function mockStaffApi(page: Page, access: Record<string, string>) {
+  const requests: Array<{ method: string; path: string }> = [];
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const method = request.method();
+    requests.push({ method, path });
+    let body: unknown = {};
+    if (path === '/api/me') body = staffUser(access);
+    else if (path === '/api/healthz') body = { status: 'ok' };
+    else if (path === '/api/stock-counts' || path === '/api/products' ||
+      path === '/api/product-categories' || path === '/api/stock-sections') body = [];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+  });
+  return requests;
+}
+
+test('staff without section access cannot find it in navigation or open it directly', async ({ page }) => {
+  await mockStaffApi(page, allStaffSections);
+  await page.goto('/products');
+
+  await expect(page.getByRole('alert')).toContainText('This section is not available');
+  await expect(page.getByTestId('link-nav-products')).toHaveCount(0);
+  await expect(page.getByTestId('link-nav-stock-counts')).toHaveCount(0);
+});
+
+test('staff with view-only count access cannot start a count from the page', async ({ page }) => {
+  const requests = await mockStaffApi(page, {
+    ...allStaffSections,
+    stockCount: 'view',
+  });
+  await page.goto('/counts');
+
+  await expect(page.getByTestId('link-nav-stock-counts')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Stock counts' })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('View-only access');
+  await page.getByRole('button', { name: 'Start count' }).click();
+  await expect(page.getByText('Your access to this section is view-only.')).toBeVisible();
+  expect(requests.filter((request) =>
+    request.method === 'POST' && request.path === '/api/stock-counts',
+  )).toHaveLength(0);
 });

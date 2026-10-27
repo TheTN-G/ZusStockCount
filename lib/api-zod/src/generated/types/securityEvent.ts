@@ -5,12 +5,20 @@
  * REST API for ZUS Store Stock
  * OpenAPI spec version: 0.1.0
  */
+import type { SecurityEventChangedSectionsItem } from './securityEventChangedSectionsItem';
 import type { SecurityEventEventType } from './securityEventEventType';
 
 export interface SecurityEvent {
   id: number;
   eventType: SecurityEventEventType;
+  /** @nullable */
+  actorUserId: string | null;
+  /** @nullable */
+  targetUserId: string | null;
+  storeroomId: number;
+  outletName: string;
   actorName: string;
   targetName: string;
+  changedSections: SecurityEventChangedSectionsItem[];
   createdAt: Date;
 }

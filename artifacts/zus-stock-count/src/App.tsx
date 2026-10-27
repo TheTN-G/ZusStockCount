@@ -1303,6 +1303,8 @@ function ActivityPage() {
   const [sectionName, setSectionName] = useState('');
   const [movementType, setMovementType] = useState('');
   const [actor, setActor] = useState('');
+  const [accessTarget, setAccessTarget] = useState('');
+  const [accessSection, setAccessSection] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [search, setSearch] = useState('');
@@ -1327,7 +1329,6 @@ function ActivityPage() {
   const rawRows = query.data || [];
   const movementTypes = [...new Set(['received', 'adjustment', 'count', 'delivery', 'transfer_in', 'transfer_out', ...rawRows.map((movement) => movement.type)])].sort();
   const sectionNames = [...new Set([...(sectionsQ.data || []).map((section) => section.name), ...rawRows.map((movement) => movement.sectionName).filter((name): name is string => Boolean(name))])].sort((a, b) => a.localeCompare(b));
-  const actors = [...new Set(rawRows.map((movement) => movement.actor).filter(Boolean))].sort();
   const searchTerm = search.trim().toLocaleLowerCase();
   const rows = rawRows.filter((movement) => {
     const product = productsById.get(movement.productId);
@@ -1346,6 +1347,32 @@ function ActivityPage() {
       refetchOnMount: 'always',
     },
   });
+  const securityRows = securityEvents.data || [];
+  const actors = [...new Set([
+    ...rawRows.map((movement) => movement.actor),
+    ...securityRows.map((event) => event.actorName),
+  ].filter(Boolean))].sort();
+  const accessEvents = securityRows.filter((event) => {
+    const text = `${event.actorName} ${event.targetName} ${event.outletName} ${event.changedSections.map((change) => `${change.section} ${change.previousAccess} ${change.newAccess}`).join(' ')}`.toLocaleLowerCase();
+    const occurredAt = new Date(event.createdAt).getTime();
+    const afterStart = !fromDate || occurredAt >= new Date(localDateBoundary(fromDate)).getTime();
+    const beforeEnd = !toDate || occurredAt < new Date(localDateBoundary(toDate, true)).getTime();
+    return event.eventType === 'staff_access_updated'
+      && (!actor || event.actorName === actor)
+      && (!accessTarget || event.targetUserId === accessTarget)
+      && (!accessSection || event.changedSections.some((change) => change.section === accessSection))
+      && (!searchTerm || text.includes(searchTerm))
+      && afterStart
+      && beforeEnd;
+  });
+  const accessTargets = [...new Map(
+    securityRows
+      .filter((event) => event.eventType === 'staff_access_updated' && event.targetUserId)
+      .map((event) => [event.targetUserId!, event.targetName]),
+  )].sort((a, b) => a[1].localeCompare(b[1]));
+  const accessSections = [...new Set(
+    securityRows.flatMap((event) => event.changedSections.map((change) => change.section)),
+  )].sort();
   function downloadCsv() {
     const escapeCell = (value: string | number | null | undefined, protectFormula = false) => {
       let text = String(value ?? '');
@@ -1386,7 +1413,7 @@ function ActivityPage() {
       <div className="panel p-4"><div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Decrease entries</div><div className="mono mt-2 text-2xl font-medium text-[#98483e]">{removed}</div><div className="mt-1 text-[10px] text-muted-foreground">stock movements that removed quantity</div></div>
     </div>
     <div className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3">
-      <label className="relative block"><Search size={15} className="absolute left-3 top-3 text-muted-foreground"/><input aria-label="Search activity" className="field pl-9" placeholder="Search product, category, reason…" value={search} onChange={(e) => setSearch(e.target.value)}/></label>
+      <label className="relative block"><Search size={15} className="absolute left-3 top-3 text-muted-foreground"/><input aria-label="Search activity" className="field pl-9" placeholder="Search stock or access changes…" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="input-search-activity"/></label>
       <select aria-label="Filter activity by product" className="field" value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">All products</option>{(productsQ.data || []).map((p) => <option value={p.id} key={p.id}>{p.name}</option>)}</select>
       <select aria-label="Filter activity by section" className="field" value={sectionName} onChange={(e) => setSectionName(e.target.value)}><option value="">All stock sections</option>{sectionNames.map((name) => <option value={name} key={name}>{name}</option>)}</select>
       <select aria-label="Filter activity by movement type" className="field" value={movementType} onChange={(e) => setMovementType(e.target.value)}><option value="">All movement types</option>{movementTypes.map((type) => <option key={type} value={type}>{titleCase(type)}</option>)}</select>
@@ -1400,23 +1427,47 @@ function ActivityPage() {
     </div>
     {canViewSecurityEvents && <section className="panel mb-4 overflow-hidden">
       <div className="border-b border-border px-5 py-4">
-        <h2 className="text-sm font-extrabold">Account security</h2>
-        <p className="mt-1 text-[11px] text-muted-foreground">Password recovery requests for this outlet.</p>
+        <h2 className="text-sm font-extrabold">Access and security history</h2>
+        <p className="mt-1 text-[11px] text-muted-foreground">Staff access changes and password recovery for {securityRows[0]?.outletName || 'this outlet'}.</p>
+      </div>
+      <div className="grid gap-3 border-b border-border/75 p-3 sm:grid-cols-3">
+        <select aria-label="Filter access changes by teammate" className="field" value={accessTarget} onChange={(event) => setAccessTarget(event.target.value)} data-testid="select-filter-access-teammate">
+          <option value="">All teammates</option>{accessTargets.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <select aria-label="Filter access changes by section" className="field" value={accessSection} onChange={(event) => setAccessSection(event.target.value)} data-testid="select-filter-access-section">
+          <option value="">All changed sections</option>{accessSections.map((section) => <option key={section} value={section}>{staffAccessSections.find((item) => item.key === section)?.label || titleCase(section)}</option>)}
+        </select>
+        <div className="flex items-center text-[10px] text-muted-foreground" data-testid="text-access-event-count">{accessEvents.length} matching staff access change{accessEvents.length === 1 ? '' : 's'}</div>
       </div>
       <QueryState
         loading={securityEvents.isLoading}
         error={securityEvents.isError}
         retry={() => void securityEvents.refetch()}
-        hasRows={(securityEvents.data || []).length > 0}
-        empty={<EmptyState title="No security events" detail="Password recovery requests will appear here."/>}
+        hasRows={securityRows.length > 0}
+        empty={<EmptyState title="No access or security events" detail="Staff permission changes and password recovery requests will appear here."/>}
       >
-        {(securityEvents.data || []).map((event) => <div key={event.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-border/75 px-5 py-4 last:border-0">
-          <div className="min-w-0">
-          <div className="text-xs font-bold">Password reset link created for {event.targetName}</div>
-            <div className="mt-1 text-[10px] text-muted-foreground">Requested by {event.actorName}</div>
-          </div>
-          <time className="text-[10px] text-muted-foreground" dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time>
-        </div>)}
+        <>
+          {accessEvents.map((event) => <div key={event.id} className="flex flex-wrap items-start justify-between gap-3 border-b border-border/75 px-5 py-4 last:border-0" data-testid={`row-staff-access-event-${event.id}`}>
+            <div className="min-w-0">
+              <div className="text-xs font-bold">Section access changed for {event.targetName}</div>
+              <div className="mt-1 text-[10px] text-muted-foreground">Changed by {event.actorName} · {event.outletName}</div>
+              <ul className="mt-2 flex flex-wrap gap-1.5">
+                {event.changedSections.map((change) => <li key={change.section} className="rounded-md bg-muted/70 px-2 py-1 text-[10px]">
+                  {staffAccessSections.find((item) => item.key === change.section)?.label || titleCase(change.section)}: {titleCase(change.previousAccess)} → {titleCase(change.newAccess)}
+                </li>)}
+              </ul>
+            </div>
+            <time className="text-[10px] text-muted-foreground" dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time>
+          </div>)}
+          {securityRows.filter((event) => event.eventType === 'password_reset_link_created').map((event) => <div key={event.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-border/75 px-5 py-4 last:border-0">
+            <div className="min-w-0">
+              <div className="text-xs font-bold">Password reset link created for {event.targetName}</div>
+              <div className="mt-1 text-[10px] text-muted-foreground">Requested by {event.actorName} · {event.outletName}</div>
+            </div>
+            <time className="text-[10px] text-muted-foreground" dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time>
+          </div>)}
+          {securityRows.length > 0 && accessEvents.length === 0 && securityRows.every((event) => event.eventType !== 'password_reset_link_created') && <div className="px-5 py-4"><EmptyState title="No access changes match these filters" detail="Try a different teammate, section, person, date range, or search term."/></div>}
+        </>
       </QueryState>
     </section>}
     <section className="panel overflow-hidden">

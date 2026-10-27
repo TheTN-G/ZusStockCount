@@ -81,6 +81,7 @@ export function accessModuleForRequest(
     return "deliveryRecords";
   }
   if (path.startsWith("/purchase-orders")) {
+    if (/\/receipts$/.test(path)) return "receiving";
     if (/\/(review|decision|approve)$/.test(path)) return "approvals";
     return "purchaseOrders";
   }
