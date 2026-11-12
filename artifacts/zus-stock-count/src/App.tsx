@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ClerkProvider, SignIn, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { Route, Switch, Redirect, Link, useLocation, Router as WouterRouter, useParams } from 'wouter';
 import {
-  Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, Boxes, Check, CheckCircle2, ChevronDown, Copy,
+  Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, BookOpen, Boxes, Check, CheckCircle2, ChevronDown, Copy,
   ClipboardCheck, Clock3, Coffee, Download, FilePlus2, Filter, LayoutDashboard, LogOut, Menu, Package, Plus, Search,
   ShieldCheck, ShoppingBag, SlidersHorizontal, Sparkles, UserRound, Users, X, CalendarClock, RefreshCw, Building2, Settings, Truck, Thermometer,
 } from 'lucide-react';
 import {
   getGetCurrentUserQueryKey, getGetDashboardSummaryQueryKey, getGetProductQueryKey, getGetStockCountQueryKey, getHealthCheckQueryKey,
+  getListActivityQueryKey,
   getListStoreSecurityEventsQueryKey,
   getListProductsQueryKey, getListPurchaseOrdersQueryKey, getListStockBatchesQueryKey,
   getListSuppliersQueryKey, getListDeliveriesQueryKey,
@@ -18,7 +19,7 @@ import {
   getListProductCategoriesQueryKey, getListStockSectionsQueryKey,
   getGetStockTransferOptionsQueryKey,
   useAddStoreMember, useCreateProduct, useCreatePurchaseOrder, useCreateStockAdjustment, useCreateStockCount,
-  useRequestStoreUserPasswordReset, useListStoreSecurityEvents, useCompleteStoreUserPasswordReset,
+  useRequestStoreUserPasswordReset, useListStoreSecurityEvents, useListActivity, useCompleteStoreUserPasswordReset,
   useCreateOutlet, useRenameOutlet, useUpdateOutlet, useUpdateWorkspace, useCreateSupplier, useUpdateSupplier, useListSuppliers,
   useListDeliveries, useCreateDelivery, useDecideDelivery,
   useCompleteWorkspaceSetup,
@@ -32,14 +33,17 @@ import {
   setActiveOutletId,
 } from '@workspace/api-client-react';
 import type {
-  Product, ProductCategory, ProductInput, PurchaseOrder, StockBatch, StockCount, StockCountInputScope, Supplier, Delivery, MovementType,
+  ActivityEntry, Product, ProductCategory, ProductInput, PurchaseOrder, StockBatch, StockCount, StockCountInputScope, Supplier, Delivery, MovementType,
   StockMovement, StoreUser, UserRole,
 } from '@workspace/api-client-react';
 import { filterExpiryRadarBatches } from './lib/expiry-window';
+import { classifyExpiryDate } from './lib/expiry-status';
 import CatalogueSettings from './CatalogueSettings';
 import StockTransfersPage from './StockTransfersPage';
-import { ModuleGuideButton } from './ModuleGuide';
+import { SearchableSelect } from './components/SearchableSelect';
+import ExpiryPage from './ExpiryPage';
 import { ApprovalsPage, CountDetailPage, CountsPage, DeliveriesPage, OrdersPage } from './OperationsPages';
+import { ModuleGuideButton } from './ModuleGuide';
 import { toast, Toaster } from 'sonner';
 import './index.css';
 
@@ -98,7 +102,7 @@ const clerkAppearance = {
 };
 
 const nav = [
-  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/products', label: 'Products', icon: Package },
   { href: '/catalogue-settings', label: 'Categories & storage', icon: SlidersHorizontal },
   { href: '/suppliers', label: 'Suppliers', icon: Building2 },
@@ -106,9 +110,9 @@ const nav = [
   { href: '/orders', label: 'Orders', icon: ShoppingBag },
   { href: '/deliveries', label: 'Deliveries', icon: Truck },
   { href: '/approvals', label: 'Approvals', icon: ShieldCheck },
-  { href: '/counts', label: 'Stock counts', icon: ClipboardCheck },
-  { href: '/activity', label: 'Activity', icon: Activity },
-  { href: '/team', label: 'Team', icon: Users },
+  { href: '/counts', label: 'Stock count', icon: ClipboardCheck },
+  { href: '/expiry', label: 'Expiry dates', icon: CalendarClock },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 const accessByHref: Record<string, keyof StoreUser['access']> = {
   '/dashboard': 'dashboard',
@@ -120,6 +124,7 @@ const accessByHref: Record<string, keyof StoreUser['access']> = {
   '/deliveries': 'deliveryRecords',
   '/approvals': 'approvals',
   '/counts': 'stockCount',
+  '/expiry': 'stockCount',
   '/activity': 'activity',
 };
 const staffAccessSections: { key: keyof StoreUser['access']; label: string }[] = [
@@ -225,6 +230,7 @@ function ContentShell({ children, title }: { children: ReactNode; title?: string
   const [mobileMenu, setMobileMenu] = useState(false);
   const [outletPickerOpen, setOutletPickerOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const [selectedOutletId, setSelectedOutletId] = useState<number | undefined>();
   const [location, setLocation] = useLocation();
   const signOutAccount = useSignOutAccount();
@@ -239,6 +245,21 @@ function ContentShell({ children, title }: { children: ReactNode; title?: string
     window.addEventListener('zus-active-outlet-change', handleOutletChange);
     return () => window.removeEventListener('zus-active-outlet-change', handleOutletChange);
   }, []);
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!profileMenuRef.current?.contains(event.target as Node)) setProfileMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setProfileMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [profileMenuOpen]);
   function clearOutletQueries() {
     qc.removeQueries({ predicate: (query) => {
       const key = query.queryKey[0];
@@ -254,7 +275,6 @@ function ContentShell({ children, title }: { children: ReactNode; title?: string
   }
   function canShowNavItem(item: (typeof nav)[number]) {
     if (!user) return false;
-    if (item.href === '/team') return ['owner', 'admin', 'supervisor'].includes(user.role);
     if (item.href === '/deliveries') {
       return user.access.deliveryRecords !== 'none' || user.access.receiving !== 'none';
     }
@@ -270,7 +290,7 @@ function ContentShell({ children, title }: { children: ReactNode; title?: string
     (location === '/team' && !['owner', 'admin', 'supervisor'].includes(user?.role ?? '')) ||
     (location === '/outlets' &&
       !(user?.workspace?.isOwner || user?.outlets?.some((outlet) => outlet.role === 'supervisor'))) ||
-    (location === '/settings' && !user?.workspace?.isOwner);
+    (location === '/settings/workspace' && !user?.workspace?.isOwner);
   const readOnlyPage =
     (requiredAccessKey !== undefined &&
       user?.access[requiredAccessKey] !== 'edit' &&
@@ -314,35 +334,35 @@ function ContentShell({ children, title }: { children: ReactNode; title?: string
         {outletPickerOpen && <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-white/10 bg-[#101d79] p-2 shadow-xl">
           <div className="px-2 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white/45">Switch outlet</div>
           {(user?.outlets || []).map((outlet) => <button key={outlet.id} type="button" onClick={() => { switchOutlet(String(outlet.id)); setOutletPickerOpen(false); }} className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs ${outlet.id === (selectedOutletId ?? user?.activeOutletId) ? 'bg-white/15 text-white' : 'text-white/75 hover:bg-white/10'}`}><span className="truncate">{outlet.name}</span>{outlet.id === (selectedOutletId ?? user?.activeOutletId) && <Check size={13}/>}</button>)}
-          {(user?.workspace?.isOwner || user?.outlets?.some((outlet) => outlet.role === 'supervisor')) && <Link href="/outlets" onClick={() => setOutletPickerOpen(false)} className="mt-1 block rounded-lg border-t border-white/10 px-2.5 py-2 text-xs font-semibold text-[#f0c05b] hover:bg-white/10">Manage outlets</Link>}
         </div>}
       </div>
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3">{nav.filter(canShowNavItem).map((item) => { const active = location === item.href || (item.href === '/counts' && location.startsWith('/counts/')); const Icon = item.icon; return <Link key={item.href} href={item.href} data-testid={`link-nav-${item.label.toLowerCase().replaceAll(' ', '-')}`} className={`flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-white/65 hover:bg-white/[.06] hover:text-white'}`}><Icon size={17}/>{item.label}{item.href === '/orders' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e9b850]"/>}</Link>; })}</nav>
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3">{nav.filter(canShowNavItem).map((item) => { const active = location === item.href || (item.href === '/counts' && location.startsWith('/counts/')) || (item.href === '/settings' && (location === '/team' || location === '/outlets' || location === '/activity' || location.startsWith('/settings/'))); const Icon = item.icon; return <Link key={item.href} href={item.href} data-testid={`link-nav-${item.label.toLowerCase().replaceAll(' ', '-')}`} className={`flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-white/65 hover:bg-white/[.06] hover:text-white'}`}><Icon size={17}/>{item.label}{item.href === '/orders' && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e9b850]"/>}</Link>; })}</nav>
     </aside>
     <div className="min-w-0 flex-1">
-      <header className="sticky top-0 z-30 flex h-[68px] items-center justify-between border-b border-border/80 bg-background/95 px-4 backdrop-blur-md sm:px-7 lg:px-10">
-        <div className="flex items-center gap-3"><button className="btn btn-ghost p-2 lg:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Toggle navigation"><Menu size={20}/></button><div className="lg:hidden"><Brand compact/></div><div className="hidden text-sm font-bold lg:block">{title || 'Store operations'}<span className="ml-3 font-normal text-muted-foreground">/</span><span className="ml-3 font-medium text-muted-foreground">{today}</span></div></div>
+      <header className="app-mobile-chrome relative z-30 flex h-14 items-center justify-between border-b border-border/80 bg-background/95 px-4 backdrop-blur-md sm:px-7 lg:sticky lg:top-0 lg:h-[68px] lg:px-10">
+        <div className="flex items-center gap-3"><div className="lg:hidden"><Brand compact/></div><div className="hidden text-sm font-bold lg:block">{title || 'Store operations'}<span className="ml-3 font-normal text-muted-foreground">/</span><span className="ml-3 font-medium text-muted-foreground">{today}</span></div></div>
         <div className="flex shrink-0 items-center gap-2">
-          <ModuleGuideButton path={location}/>
-          {user?.outlets?.length ? <select aria-label="Active outlet" data-testid="select-active-outlet" className="field h-9 max-w-[155px] py-1 text-xs sm:max-w-[220px]" value={selectedOutletId ?? user.activeOutletId} onChange={(e) => switchOutlet(e.target.value)}>{user.outlets.map((outlet) => <option value={outlet.id} key={outlet.id}>{outlet.name}</option>)}</select> : null}
+          {user?.outlets?.length ? <SearchableSelect aria-label="Active outlet" data-testid="select-active-outlet" className="h-9 max-w-[155px] py-1 text-xs sm:max-w-[220px]" value={selectedOutletId ?? user.activeOutletId} onChange={(e) => switchOutlet(e.target.value)}>{user.outlets.map((outlet) => <option value={outlet.id} key={outlet.id}>{outlet.name}</option>)}</SearchableSelect> : null}
         <span aria-label={health.isError ? 'Store connection needs attention' : 'Connected to live store data'} title={health.isError ? 'Store connection needs attention' : 'Connected to live store data'} className={`hidden shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 py-1.5 text-[10px] font-bold sm:inline-flex ${health.isError ? 'border-[#ead4cc] bg-[#f7e7df] text-[#9d463d]' : 'border-[#d6e3d9] bg-[#e8f1e9] text-[#346849]'}`}><span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${health.isError ? 'bg-[#ad594c]' : 'bg-[#43885e]'}`}/>{health.isError ? 'OFFLINE' : 'LIVE'}</span>
-        <div className="relative">
+        <div className="relative" ref={profileMenuRef}>
           <button type="button" title={user?.name || 'User profile'} aria-label={user?.name ? `${user.name} profile` : 'User profile'} aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-sm font-extrabold text-primary">
             {user?.name?.[0] || <UserRound size={16}/>}
           </button>
           {profileMenuOpen && <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border border-border bg-card p-2 shadow-xl">
             <div className="border-b border-border px-3 py-2"><div className="truncate text-xs font-extrabold">{user?.name || 'My account'}</div><div className="mt-1 text-[10px] capitalize text-muted-foreground">{user?.role || 'Team member'}</div></div>
             <Link role="menuitem" href="/account" onClick={() => setProfileMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold hover:bg-muted"><UserRound size={15}/>My account</Link>
-            {(user?.workspace?.isOwner || user?.outlets?.some((outlet) => outlet.role === 'supervisor')) && <Link role="menuitem" href="/outlets" onClick={() => setProfileMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold hover:bg-muted"><Building2 size={15}/>Manage outlets</Link>}
-            {user?.workspace?.isOwner && <Link role="menuitem" href="/settings" onClick={() => setProfileMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold hover:bg-muted"><Settings size={15}/>Workspace settings</Link>}
+            {['owner', 'admin', 'supervisor'].includes(user?.role || '') && <Link role="menuitem" href="/team" onClick={() => setProfileMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold hover:bg-muted"><Users size={15}/>Team</Link>}
+            {user?.access.activity !== 'none' && <Link role="menuitem" href="/activity" onClick={() => setProfileMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold hover:bg-muted"><Activity size={15}/>Activity log</Link>}
+            <Link role="menuitem" href="/help" onClick={() => setProfileMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold hover:bg-muted"><BookOpen size={15}/>Help &amp; guides</Link>
+            <Link role="menuitem" href="/settings" onClick={() => setProfileMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold hover:bg-muted"><Settings size={15}/>Settings</Link>
             <button role="menuitem" type="button" onClick={() => void signOutFromApp()} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-semibold text-[#98483e] hover:bg-[#f6e4df]"><LogOut size={15}/>Sign out</button>
           </div>}
         </div>
         </div>
       </header>
-      {mobileMenu && <div className="fixed inset-0 z-40 bg-[#10231f]/40 lg:hidden" onClick={() => setMobileMenu(false)}><div className="flex h-full w-[290px] flex-col overflow-hidden bg-sidebar p-5 text-sidebar-foreground" onClick={(e) => e.stopPropagation()}><div className="mb-5 flex shrink-0 items-center justify-between"><Brand/><button onClick={() => setMobileMenu(false)} className="rounded-lg p-2" data-testid="button-close-navigation"><X size={18}/></button></div><div className="relative mb-4 shrink-0"><button type="button" className="w-full rounded-xl border border-white/10 bg-white/10 p-3 text-left" aria-label="Choose an outlet from this workspace" aria-expanded={outletPickerOpen} onClick={() => setOutletPickerOpen((open) => !open)}><span className="block truncate text-sm font-bold">{user?.workspace?.name || 'Workspace'}</span><span className="mt-1 flex items-center justify-between gap-2 text-xs text-white/60"><span className="truncate">{user?.outlets?.find((outlet) => outlet.id === (selectedOutletId ?? user.activeOutletId))?.name || 'Choose outlet'}</span><ChevronDown size={14}/></span></button>{outletPickerOpen && <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-white/10 bg-[#101d79] p-2 shadow-xl">{(user?.outlets || []).map((outlet) => <button key={outlet.id} type="button" onClick={() => { switchOutlet(String(outlet.id)); setOutletPickerOpen(false); }} className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs text-white/80 hover:bg-white/10"><span className="truncate">{outlet.name}</span>{outlet.id === (selectedOutletId ?? user?.activeOutletId) && <Check size={13}/>}</button>)}{(user?.workspace?.isOwner || user?.outlets?.some((outlet) => outlet.role === 'supervisor')) && <Link href="/outlets" onClick={() => { setOutletPickerOpen(false); setMobileMenu(false); }} className="mt-1 block border-t border-white/10 px-2.5 py-2 text-xs font-semibold text-[#f0c05b]">Manage outlets</Link>}</div>}</div><nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pb-3">{nav.filter(canShowNavItem).map((item) => { const Icon = item.icon; return <Link key={item.href} href={item.href} onClick={() => setMobileMenu(false)} data-testid={`mobile-nav-${item.href.slice(1)}`} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-semibold text-white/75 hover:bg-white/10"><Icon size={17}/>{item.label}</Link>; })}</nav><button onClick={() => void signOutFromApp()} className="btn btn-ghost mt-auto w-full shrink-0 justify-start text-white" data-testid="button-sign-out-mobile"><LogOut size={16}/> Sign out</button></div></div>}
+      {mobileMenu && <div className="fixed inset-0 z-[60] bg-[#10231f]/40 lg:hidden" onClick={() => setMobileMenu(false)}><div className="flex h-full w-[290px] flex-col overflow-hidden bg-sidebar p-5 text-sidebar-foreground" onClick={(e) => e.stopPropagation()}><div className="mb-5 flex shrink-0 items-center justify-between"><Brand/><button onClick={() => setMobileMenu(false)} className="rounded-lg p-2" data-testid="button-close-navigation"><X size={18}/></button></div><div className="relative mb-4 shrink-0"><button type="button" className="w-full rounded-xl border border-white/10 bg-white/10 p-3 text-left" aria-label="Choose an outlet from this workspace" aria-expanded={outletPickerOpen} onClick={() => setOutletPickerOpen((open) => !open)}><span className="block truncate text-sm font-bold">{user?.workspace?.name || 'Workspace'}</span><span className="mt-1 flex items-center justify-between gap-2 text-xs text-white/60"><span className="truncate">{user?.outlets?.find((outlet) => outlet.id === (selectedOutletId ?? user.activeOutletId))?.name || 'Choose outlet'}</span><ChevronDown size={14}/></span></button>{outletPickerOpen && <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-white/10 bg-[#101d79] p-2 shadow-xl">{(user?.outlets || []).map((outlet) => <button key={outlet.id} type="button" onClick={() => { switchOutlet(String(outlet.id)); setOutletPickerOpen(false); }} className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs text-white/80 hover:bg-white/10"><span className="truncate">{outlet.name}</span>{outlet.id === (selectedOutletId ?? user?.activeOutletId) && <Check size={13}/>}</button>)}</div>}</div><nav className="min-h-0 flex-1 space-y-1 overflow-y-auto pb-3">{nav.filter(canShowNavItem).map((item) => { const Icon = item.icon; return <Link key={item.href} href={item.href} onClick={() => setMobileMenu(false)} data-testid={`mobile-nav-${item.href.slice(1)}`} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-semibold text-white/75 hover:bg-white/10"><Icon size={17}/>{item.label}</Link>; })}</nav><button onClick={() => void signOutFromApp()} className="btn btn-ghost mt-auto w-full shrink-0 justify-start text-white" data-testid="button-sign-out-mobile"><LogOut size={16}/> Sign out</button></div></div>}
       <main
-        className="page-enter mx-auto max-w-[1440px] px-4 py-7 sm:px-7 sm:py-9 lg:px-10"
+        className="page-enter mx-auto max-w-[1440px] px-4 pb-[calc(4.5rem_+_env(safe-area-inset-bottom))] pt-7 sm:px-7 sm:pt-9 lg:px-10 lg:pb-9"
         onClickCapture={(event) => {
           if (!readOnlyPage) return;
           const button = (event.target as HTMLElement).closest('button.btn');
@@ -364,6 +384,13 @@ function ContentShell({ children, title }: { children: ReactNode; title?: string
           {children}
         </>}
       </main>
+      <nav aria-label="Mobile navigation" className="app-mobile-chrome fixed inset-x-0 bottom-0 z-40 grid h-[calc(56px_+_env(safe-area-inset-bottom))] grid-cols-5 items-end border-t border-border/80 bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(16,29,121,.08)] backdrop-blur lg:hidden">
+        <Link href="/dashboard" aria-current={location === '/dashboard' ? 'page' : undefined} className={`flex h-12 flex-col items-center justify-center gap-1 text-[9px] font-bold ${location === '/dashboard' ? 'text-primary' : 'text-muted-foreground'}`}><LayoutDashboard size={19}/>Dashboard</Link>
+        <Link href="/orders" aria-current={location === '/orders' ? 'page' : undefined} className={`flex h-12 flex-col items-center justify-center gap-1 text-[9px] font-bold ${location === '/orders' ? 'text-primary' : 'text-muted-foreground'}`}><ShoppingBag size={19}/>Order</Link>
+        <Link href="/counts" aria-current={location === '/counts' || location.startsWith('/counts/') ? 'page' : undefined} className="flex h-14 flex-col items-center justify-end gap-1 pb-1 text-[9px] font-extrabold text-primary"><span className="-mt-6 grid h-12 w-12 place-items-center rounded-full bg-primary text-primary-foreground ring-[5px] ring-background shadow-lg"><ClipboardCheck size={22}/></span>Stock count</Link>
+        <Link href="/approvals" aria-current={location === '/approvals' ? 'page' : undefined} className={`flex h-12 flex-col items-center justify-center gap-1 text-[9px] font-bold ${location === '/approvals' ? 'text-primary' : 'text-muted-foreground'}`}><ShieldCheck size={19}/>Approval</Link>
+        <button type="button" aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)} className={`flex h-12 flex-col items-center justify-center gap-1 text-[9px] font-bold ${mobileMenu ? 'text-primary' : 'text-muted-foreground'}`}><Menu size={19}/>More</button>
+      </nav>
     </div>
   </div>;
 }
@@ -671,27 +698,62 @@ function WorkspaceSetupPage() {
 
 function Dashboard() {
   const { data: summary, isLoading, isError, refetch } = useGetDashboardSummary({ query: { queryKey: getGetDashboardSummaryQueryKey() } });
+  const currentUser = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
   const { data: products = [] } = useListProducts({ active: true }, { query: { queryKey: getListProductsQueryKey({ active: true }) } });
   const { data: batches = [] } = useListStockBatches({}, { query: { queryKey: getListStockBatchesQueryKey({}) } });
   const low = products.filter((p) => p.lowStock).slice(0, 4);
-  const expiring = useMemo(
-    () => filterExpiryRadarBatches(batches).sort((a, b) => (a.expiryDate ?? '').localeCompare(b.expiryDate ?? '')),
-    [batches],
+  const expiryBatches = useMemo(() => {
+    const warnDaysByProduct = new Map(products.map((product) => [product.id, product.warnDays]));
+    return batches.map((batch) => ({
+      ...batch,
+      warnDays: warnDaysByProduct.get(batch.productId) ?? 3,
+    }));
+  }, [batches, products]);
+  const expired = expiryBatches.filter(
+    (batch) => batch.quantity > 0 && classifyExpiryDate(batch.expiryDate, new Date(), batch.warnDays) === 'expired',
   );
-  return <><PageHeading eyebrow="Shift overview" title="Good morning." subtitle={`${today} · Here's where your store stands.`} action={<Link href="/counts" className="btn btn-primary"><ClipboardCheck size={16}/> Start a count</Link>}/>
+  const expiring = useMemo(
+    () => filterExpiryRadarBatches(expiryBatches).sort((a, b) => (a.expiryDate ?? '').localeCompare(b.expiryDate ?? '')),
+    [expiryBatches],
+  );
+  const expiryAlerts = [...expired, ...expiring].sort((a, b) => (a.expiryDate ?? '').localeCompare(b.expiryDate ?? ''));
+  return <><PageHeading eyebrow="Shift overview" title={`Good to see you, ${currentUser.data?.name?.split(' ')[0] || 'there'}`} subtitle={`${today} · Here's where your store stands.`} action={<Link href="/counts" className="btn btn-primary hidden lg:inline-flex"><ClipboardCheck size={16}/> Start a count</Link>}/>
     <QueryState loading={isLoading} error={isError} retry={() => void refetch()}>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
+      <div className="space-y-4 lg:hidden">
+        {(expired.length > 0 || expiring.length > 0) && <Link href="/expiry" className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3.5 ${expired.length ? 'border-[#e6c3bf] bg-[#fff0ed] text-[#8d3939]' : 'border-[#ead9b7] bg-[#fff8e8] text-[#795713]'}`}>
+          <span className="flex min-w-0 items-center gap-3"><CalendarClock size={20} className="shrink-0"/><span className="text-sm font-extrabold">{expired.length ? `${expired.length} expired: dispose of it` : ''}{expired.length && expiring.length ? ' · ' : ''}{expiring.length ? `${expiring.length} expiring soon: use first` : ''}</span></span><ArrowRight size={17} className="shrink-0"/>
+        </Link>}
+        {expiryAlerts[0] && <Link href="/expiry" className="panel flex items-center gap-3 p-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#e8f1e9] text-primary"><CalendarClock size={19}/></span>
+          <span className="min-w-0 flex-1"><span className="block text-[10px] text-muted-foreground">Expiry · {dateText(expiryAlerts[0].expiryDate)}</span><span className="mt-0.5 block truncate text-sm font-bold">{expired.includes(expiryAlerts[0]) ? 'Dispose of' : 'Use first'}: {expiryAlerts[0].productName}</span></span>
+          {expiryAlerts.length > 1 && <span className="shrink-0 text-xs font-extrabold text-primary">+{expiryAlerts.length - 1} more</span>}
+        </Link>}
+        <div className="grid grid-cols-2 gap-2 min-[440px]:grid-cols-4">{[
+          { label: 'Products', value: summary?.productCount ?? products.length, tint: 'text-primary bg-[#e7ebf6]' },
+          { label: 'Low stock', value: summary?.lowStockCount ?? 0, tint: 'text-[#a65339] bg-[#f5e9de]' },
+          { label: 'Use soon', value: expiring.length, tint: 'text-[#875b15] bg-[#f8eed6]' },
+          { label: 'Expired', value: expired.length, tint: 'text-[#98483e] bg-[#f6e4df]' },
+        ].map((item) => <div key={item.label} className="panel min-w-0 p-3"><div className="flex items-start justify-between gap-1"><span className="text-[10px] font-bold leading-4 text-muted-foreground">{item.label}</span><span className={`h-2 w-2 shrink-0 rounded-full ${item.tint.split(' ')[0].replace('text-', 'bg-')}`}/></div><div className="zus-title mt-2 text-2xl font-bold leading-none">{isLoading ? '—' : item.value}</div></div>)}</div>
+        <section className="panel overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3"><div><h2 className="text-sm font-extrabold">Low stock watchlist</h2><p className="mt-1 text-[10px] text-muted-foreground">Products below their minimum level</p></div><Link href="/products" className="text-xs font-bold text-primary">View all</Link></div>
+          {low.length ? <div className="divide-y divide-border">{low.map((product) => <div key={product.id} className="flex items-center justify-between gap-3 px-4 py-3">
+            <span className="min-w-0"><span className="block truncate text-xs font-bold">{product.name}</span><span className="mt-1 block text-[10px] text-muted-foreground">Minimum {product.minStock} {product.minStockUnit === 'bundle' ? product.bundleUnit : product.unit}</span></span><Pill tone="warn">{product.stockOnHand} {product.unit} left</Pill>
+          </div>)}</div> : <p className="p-5 text-center text-xs text-muted-foreground">No products are below their minimum stock level.</p>}
+        </section>
+        <section className="panel overflow-hidden"><div className="flex items-center justify-between border-b border-border px-4 py-3"><div><h2 className="text-sm font-extrabold">Recent stock movements</h2><p className="mt-1 text-[10px] text-muted-foreground">Latest changes in this outlet</p></div><Link href="/activity" className="text-xs font-bold text-primary">View all</Link></div><div className="p-3"><MovementRows rows={summary?.recentMovements || []}/></div></section>
+      </div>
+      <div className="hidden gap-3 lg:grid lg:grid-cols-4">{[
         { label: 'Active products', value: summary?.productCount ?? 0, hint: 'In your catalogue', icon: Package, tint: 'text-primary bg-[#e7ebf6]' },
         { label: 'Running low', value: summary?.lowStockCount ?? 0, hint: 'Below minimum stock', icon: ArrowDownRight, tint: 'text-[#a65339] bg-[#f5e9de]' },
         { label: 'Use soon', value: summary?.expiringSoonCount ?? 0, hint: 'Expiry within 7 days', icon: CalendarClock, tint: 'text-[#8a621b] bg-[#f6efd9]' },
         { label: 'Needs review', value: summary?.pendingApprovals ?? 0, hint: 'Requests waiting', icon: Clock3, tint: 'text-[#536e87] bg-[#e6edf0]' },
       ].map((item) => { const Icon = item.icon; return <div key={item.label} className="panel p-5"><div className="flex items-start justify-between"><span className="text-xs font-bold text-muted-foreground">{item.label}</span><span className={`grid h-9 w-9 place-items-center rounded-xl ${item.tint}`}><Icon size={17}/></span></div><div className="zus-title mt-4 text-[2.4rem] font-bold leading-none">{isLoading ? '—' : item.value}</div><div className="mt-2 text-[11px] text-muted-foreground">{item.hint}</div></div>; })}</div>
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
+      <div className="mt-5 hidden gap-5 xl:grid xl:grid-cols-[1.3fr_.7fr] lg:grid">
         <section className="panel overflow-hidden"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="text-sm font-extrabold">Stock movements</h2><p className="mt-1 text-[11px] text-muted-foreground">Latest changes in your store</p></div><Link href="/activity" className="btn btn-ghost px-2 text-xs">Full activity <ArrowRight size={14}/></Link></div><MovementRows rows={summary?.recentMovements || []}/></section>
         <div className="space-y-5"><section className="panel overflow-hidden"><div className="flex items-center justify-between px-5 pt-5"><div><div className="mono text-[9px] uppercase tracking-[.15em] text-[#a05c3d]">Watchlist</div><h2 className="mt-1 text-sm font-extrabold">Below par</h2></div><Link href="/products" className="btn btn-ghost p-2"><ArrowRight size={15}/></Link></div><div className="px-5 pb-3 pt-2">{low.length ? low.map((p) => <div key={p.id} className="flex items-center justify-between border-b border-border/70 py-3 last:border-0"><div><div className="text-xs font-bold">{p.name}</div><div className="mt-1 text-[10px] text-muted-foreground">Minimum {p.minStock} {p.unit}</div></div><Pill tone="warn">{p.stockOnHand} left</Pill></div>) : <p className="py-6 text-center text-xs text-muted-foreground">No items below minimum.</p>}</div></section>
-         <section className="panel overflow-hidden"><div className="flex items-center justify-between px-5 pt-5"><div><div className="mono text-[9px] uppercase tracking-[.15em] text-[#53668f]">Expiry radar</div><h2 className="mt-1 text-sm font-extrabold">Use these first</h2></div><div className="flex items-center gap-2">{expiring.length > 0 && <span className="rounded-full bg-[#f6efd9] px-2 py-1 text-[10px] font-bold text-[#8a621b]">{expiring.length} {expiring.length === 1 ? 'batch' : 'batches'}</span>}<Link href="/inventory" className="btn btn-ghost p-2" aria-label="View inventory"><ArrowRight size={15}/></Link></div></div><div className="max-h-80 overflow-y-auto px-5 pb-3 pt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" tabIndex={0} aria-label="Batches expiring today through the next seven days">{expiring.length ? expiring.map((b) => <div key={b.id} className="flex items-center justify-between border-b border-border/70 py-3 last:border-0"><div><div className="text-xs font-bold">{b.productName}</div><div className="mt-1 text-[10px] text-muted-foreground">{b.quantity} units · exp {dateText(b.expiryDate)}</div></div><Pill tone="bad">Soon</Pill></div>) : <p className="py-6 text-center text-xs text-muted-foreground">No batches near expiry.</p>}</div></section></div>
+          <section className="panel overflow-hidden"><div className="flex items-center justify-between px-5 pt-5"><div><div className="mono text-[9px] uppercase tracking-[.15em] text-[#53668f]">Expiry radar</div><h2 className="mt-1 text-sm font-extrabold">Use these first</h2></div><div className="flex items-center gap-2">{expiring.length > 0 && <span className="rounded-full bg-[#f6efd9] px-2 py-1 text-[10px] font-bold text-[#8a621b]">{expiring.length} {expiring.length === 1 ? 'batch' : 'batches'}</span>}<Link href="/expiry" className="btn btn-ghost p-2" aria-label="View expiry dates"><ArrowRight size={15}/></Link></div></div><div className="max-h-80 overflow-y-auto px-5 pb-3 pt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" tabIndex={0} aria-label="Batches expiring today through the next seven days">{expiring.length ? expiring.map((b) => <div key={b.id} className="flex items-center justify-between border-b border-border/70 py-3 last:border-0"><div><div className="text-xs font-bold">{b.productName}</div><div className="mt-1 text-[10px] text-muted-foreground">{b.quantity} units · exp {dateText(b.expiryDate)}</div></div><Pill tone="bad">Soon</Pill></div>) : <p className="py-6 text-center text-xs text-muted-foreground">No batches near expiry.</p>}</div></section></div>
       </div>
-       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#101d79] px-5 py-4 text-[#f8f4e9]"><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#eab650] text-[#0b1649]"><Coffee size={18}/></div><div><div className="text-sm font-extrabold">One clean count keeps the next shift calm.</div><div className="mt-1 text-[11px] text-white/60">Start with a full-store walk-through or count a single category.</div></div></div><Link href="/counts" className="btn rounded-lg bg-[#f4d78e] text-[#0b1649]">New stock count <ArrowRight size={14}/></Link></div>
+        <div className="mt-5 hidden flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#101d79] px-5 py-4 text-[#f8f4e9] lg:flex"><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#eab650] text-[#0b1649]"><Coffee size={18}/></div><div><div className="text-sm font-extrabold">One clean count keeps the next shift calm.</div><div className="mt-1 text-[11px] text-white/60">Start with a full-store walk-through or count a single category.</div></div></div><Link href="/counts" className="btn rounded-lg bg-[#f4d78e] text-[#0b1649]">New stock count <ArrowRight size={14}/></Link></div>
     </QueryState>
   </>;
 }
@@ -707,25 +769,75 @@ function ProductDialog({ item, close }: { item?: Product; close: () => void }) {
   const savedCategories = categoriesQuery.data ?? [];
   const sections = sectionsQuery.data ?? [];
   const defaultSection = sections.find((section) => section.isDefault) ?? sections[0];
-  const categoryOptions = savedCategories.length
-    ? savedCategories
-    : Object.entries(categoryLabels).map(([key, name]) => ({ key, name }));
+  const categoryOptions = savedCategories;
   const categories =
     item?.category && !categoryOptions.some((category) => category.key === item.category)
       ? [...categoryOptions, { key: item.category, name: categoryLabels[item.category] || item.category }]
       : categoryOptions;
-  const [form, setForm] = useState({ name: item?.name || '', category: item?.category || 'food', defaultSectionId: item?.defaultSectionId == null ? '' : String(item.defaultSectionId), unit: item?.unit || 'each', bundleUnit: item?.bundleUnit || 'pack', bundleSize: String(item?.bundleSize ?? 1), minStock: String(item?.minStock ?? 0), minStockUnit: item?.minStockUnit || 'unit', preferredSupplierId: item?.preferredSupplierId == null ? '' : String(item.preferredSupplierId), openingStock: '0', openingExpiry: '', tempMinC: item?.tempMinC == null ? '' : String(item.tempMinC), tempMaxC: item?.tempMaxC == null ? '' : String(item.tempMaxC), active: item?.active ?? true });
+  const [form, setForm] = useState({
+    name: item?.name || '',
+    category: item?.category || '',
+    defaultSectionId: item?.defaultSectionId == null ? '' : String(item.defaultSectionId),
+    unit: item?.unit || 'each',
+    bundleUnit: item?.bundleUnit || 'pack',
+    bundleSize: String(item?.bundleSize ?? 1),
+    minStock: String(item?.minStock ?? 0),
+    minStockUnit: item?.minStockUnit || 'unit',
+    preferredSupplierId: item?.preferredSupplierId == null ? '' : String(item.preferredSupplierId),
+    openingStock: '0',
+    openingExpiry: '',
+    trackExpiry: item?.trackExpiry ?? false,
+    minDaysLeft: item?.minDaysLeft == null ? '' : String(item.minDaysLeft),
+    warnDays: String(item?.warnDays ?? 3),
+    tempMinC: item?.tempMinC == null ? '' : String(item.tempMinC),
+    tempMaxC: item?.tempMaxC == null ? '' : String(item.tempMaxC),
+    active: item?.active ?? true,
+  });
+  const selectedCategory = form.category || item?.category || categories[0]?.key || '';
   const selectedSectionId = form.defaultSectionId || (defaultSection ? String(defaultSection.id) : '');
   const busy = create.isPending || update.isPending;
   function submit(e: FormEvent) {
     e.preventDefault();
+    if (!selectedCategory) {
+      toast.error('Add a product category before saving a product.');
+      return;
+    }
     const tempMinC = form.tempMinC.trim() === '' ? null : Number(form.tempMinC);
     const tempMaxC = form.tempMaxC.trim() === '' ? null : Number(form.tempMaxC);
     if ((tempMinC === null) !== (tempMaxC === null) || (tempMinC !== null && tempMaxC !== null && tempMinC > tempMaxC)) {
       toast.error('Enter both product-specific temperature limits, with the minimum at or below the maximum.');
       return;
     }
-    const data = { name: form.name.trim(), sku: null, category: form.category as ProductCategory, defaultSectionId: selectedSectionId ? Number(selectedSectionId) : null, tempMinC, tempMaxC, unit: form.unit.trim(), bundleUnit: form.bundleUnit.trim(), bundleSize: Number(form.bundleSize), minStock: Number(form.minStock), minStockUnit: form.minStockUnit as 'unit' | 'bundle', preferredSupplierId: form.preferredSupplierId ? Number(form.preferredSupplierId) : null };
+    const minDaysLeft = form.trackExpiry && form.minDaysLeft.trim()
+      ? Number(form.minDaysLeft)
+      : null;
+    const warnDays = form.trackExpiry ? Number(form.warnDays) : 3;
+    if (
+      form.trackExpiry &&
+      ((!Number.isInteger(warnDays) || warnDays < 0 || warnDays > 365) ||
+        (minDaysLeft !== null &&
+          (!Number.isInteger(minDaysLeft) || minDaysLeft < 0 || minDaysLeft > 3650)))
+    ) {
+      toast.error('Expiry limits must be whole days within the allowed range.');
+      return;
+    }
+    const data = {
+      name: form.name.trim(),
+      sku: null,
+      category: selectedCategory as ProductCategory,
+      defaultSectionId: selectedSectionId ? Number(selectedSectionId) : null,
+      tempMinC,
+      tempMaxC,
+      unit: form.unit.trim(),
+      bundleUnit: form.bundleUnit.trim(),
+      bundleSize: Number(form.bundleSize),
+      minStock: Number(form.minStock),
+      minStockUnit: form.minStockUnit as 'unit' | 'bundle',
+      preferredSupplierId: form.preferredSupplierId ? Number(form.preferredSupplierId) : null,
+      trackExpiry: form.trackExpiry,
+      minDaysLeft,
+      warnDays,
+    };
     const done = () => { void qc.invalidateQueries({ queryKey: getListProductsQueryKey() }); void qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() }); if (item) void qc.invalidateQueries({ queryKey: getGetProductQueryKey(item.id) }); toast.success(item ? 'Product updated' : 'Product added'); close(); };
     if (item) update.mutate({ productId: item.id, data: { ...data, active: form.active } }, { onSuccess: done, onError: () => toast.error('Could not save product') });
     else create.mutate({ data: { ...data, openingStock: { quantity: Number(form.openingStock || 0), sectionId: selectedSectionId ? Number(selectedSectionId) : null, expiryDate: form.openingExpiry || null } } as ProductInput }, { onSuccess: done, onError: () => toast.error('Could not add product') });
@@ -735,13 +847,62 @@ function ProductDialog({ item, close }: { item?: Product; close: () => void }) {
     {item && productDetail.isLoading && <div className="skeleton h-8 w-full"/>}
     {(sectionsQuery.isError || categoriesQuery.isError) && <div role="alert" className="rounded-xl bg-[#f6e4df] p-3 text-xs text-[#98483e]">Could not load this outlet's categories or stock sections.</div>}
     <label className="block text-xs font-bold">Product name<input required value={form.name} onChange={(e) => set('name', e.target.value)} className="field mt-1.5" placeholder="e.g. Oat milk, 1L"/></label>
-    <label className="block text-xs font-bold">Category<select className="field mt-1.5" value={form.category} onChange={(e) => set('category', e.target.value)}>{categories.map((c) => <option key={c.key} value={c.key}>{c.name}</option>)}</select></label>
-    <label className="block text-xs font-bold">Default stock section<select required className="field mt-1.5" value={selectedSectionId} onChange={(e) => set('defaultSectionId', e.target.value)} disabled={sectionsQuery.isLoading || sections.length === 0}><option value="">Choose a stock section</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.name}{section.isDefault ? ' · default' : ''}</option>)}</select><span className="mt-1 block text-[10px] font-normal text-muted-foreground">Newly received stock starts here. Existing stock can remain in, or move to, other sections.</span></label>
+    <label className="block text-xs font-bold">Category<SearchableSelect required className="mt-1.5" value={selectedCategory} onChange={(e) => set('category', e.target.value)} disabled={categoriesQuery.isLoading || categories.length === 0}><option value="">Choose a category</option>{categories.map((c) => <option key={c.key} value={c.key}>{c.name}</option>)}</SearchableSelect></label>
+    {!categoriesQuery.isLoading && categories.length === 0 && <p className="text-xs text-[#98483e]">Add a category in Categories & storage before adding products.</p>}
+    <label className="block text-xs font-bold">Default stock section<SearchableSelect required className="mt-1.5" value={selectedSectionId} onChange={(e) => set('defaultSectionId', e.target.value)} disabled={sectionsQuery.isLoading || sections.length === 0}><option value="">Choose a stock section</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.name}{section.isDefault ? ' · default' : ''}</option>)}</SearchableSelect><span className="mt-1 block text-[10px] font-normal text-muted-foreground">Newly received stock starts here. Existing stock can remain in, or move to, other sections.</span></label>
     <div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold">Base unit<input required value={form.unit} onChange={(e) => set('unit', e.target.value)} className="field mt-1.5" placeholder="each, bottle"/></label><label className="block text-xs font-bold">Bundle unit<input required value={form.bundleUnit} onChange={(e) => set('bundleUnit', e.target.value)} className="field mt-1.5" placeholder="pack, carton"/></label></div>
     <label className="block text-xs font-bold">Units per bundle<input type="number" min=".01" step=".01" required value={form.bundleSize} onChange={(e) => set('bundleSize', e.target.value)} className="field mt-1.5"/></label>
     <div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold">Low-stock threshold<input data-testid="input-product-min-stock" type="number" min="0" step=".01" required value={form.minStock} onChange={(e) => set('minStock', e.target.value)} className="field mt-1.5"/></label><label className="block text-xs font-bold">Threshold unit<select className="field mt-1.5" value={form.minStockUnit} onChange={(e) => set('minStockUnit', e.target.value)}><option value="unit">{form.unit || 'Base unit'}</option><option value="bundle">{form.bundleUnit || 'Bundle unit'}</option></select></label></div>
-    <label className="block text-xs font-bold">Preferred supplier<select className="field mt-1.5" value={form.preferredSupplierId} onChange={(e) => set('preferredSupplierId', e.target.value)}><option value="">No preferred supplier</option>{(suppliersQuery.data || []).filter((supplier) => supplier.active || String(supplier.id) === form.preferredSupplierId).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
+    <label className="block text-xs font-bold">Preferred supplier<SearchableSelect className="mt-1.5" value={form.preferredSupplierId} onChange={(e) => set('preferredSupplierId', e.target.value)}><option value="">No preferred supplier</option>{(suppliersQuery.data || []).filter((supplier) => supplier.active || String(supplier.id) === form.preferredSupplierId).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</SearchableSelect></label>
      {!item && <div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold">Opening stock<input className="field mt-1.5" type="number" min="0" step=".01" value={form.openingStock} onChange={(e) => set('openingStock', e.target.value)}/></label><label className="block text-xs font-bold">Opening stock expiry (optional)<input className="field mt-1.5" type="date" value={form.openingExpiry} onChange={(e) => set('openingExpiry', e.target.value)}/></label></div>}
+    <fieldset className="rounded-xl border border-border p-4">
+      <legend className="px-1 text-xs font-extrabold">Expiry rules</legend>
+      <label className="flex items-start gap-2 text-xs font-semibold">
+        <input
+          type="checkbox"
+          checked={form.trackExpiry}
+          onChange={(event) => set('trackExpiry', event.target.checked)}
+          className="mt-0.5 accent-[#155d4d]"
+        />
+        <span>Track expiry and ask for the date at every delivery.</span>
+      </label>
+      {form.trackExpiry && (
+        <>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-bold">
+              Minimum days left at delivery
+              <input
+                type="number"
+                min="0"
+                max="3650"
+                step="1"
+                value={form.minDaysLeft}
+                onChange={(event) => set('minDaysLeft', event.target.value)}
+                className="field mt-1.5"
+                placeholder="No minimum"
+              />
+            </label>
+            <label className="block text-xs font-bold">
+              Warn before expiry (days)
+              <input
+                type="number"
+                min="0"
+                max="365"
+                step="1"
+                required
+                value={form.warnDays}
+                onChange={(event) => set('warnDays', event.target.value)}
+                className="field mt-1.5"
+              />
+            </label>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+            An expired date or a date below the minimum is sent to Approvals for a manager to review.
+            If the date cannot be read, staff can mark it and fill it in later.
+          </p>
+        </>
+      )}
+    </fieldset>
     <div className="rounded-xl border border-border bg-muted/25 p-4">
       <div className="mb-3 flex items-center gap-2 text-xs font-extrabold"><Thermometer size={15}/> Product temperature override (optional)</div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -752,36 +913,16 @@ function ProductDialog({ item, close }: { item?: Product; close: () => void }) {
     </div>
     {item && <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={form.active} onChange={(e) => set('active', e.target.checked)} className="accent-[#155d4d]"/> Active in catalogue</label>}
     {sections.length === 0 && !sectionsQuery.isLoading && <p className="text-xs text-[#98483e]">Create a stock section in Manage lists before adding products.</p>}
-    <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={close} className="btn btn-soft">Cancel</button><button disabled={busy || sectionsQuery.isLoading || sections.length === 0} className="btn btn-primary">{busy ? 'Saving…' : item ? 'Save changes' : 'Add product'}</button></div>
+    <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={close} className="btn btn-soft">Cancel</button><button disabled={busy || categoriesQuery.isLoading || categories.length === 0 || sectionsQuery.isLoading || sections.length === 0} className="btn btn-primary">{busy ? 'Saving…' : item ? 'Save changes' : 'Add product'}</button></div>
   </form></Modal>;
-}
-function ProductSopDialog({ product, category, close }: { product: Product; category?: { name: string; receivingTempMinC: number | null; receivingTempMaxC: number | null; receivingHandlingSop: string }; close: () => void }) {
-  const hasProductRange = product.tempMinC !== null && product.tempMaxC !== null;
-  const rangeMin = hasProductRange ? product.tempMinC : category?.receivingTempMinC ?? null;
-  const rangeMax = hasProductRange ? product.tempMaxC : category?.receivingTempMaxC ?? null;
-  const hasTemperatureRange = rangeMin !== null && rangeMax !== null;
-  return <Modal title={`${product.name} · ${category?.name || product.category}`} detail="A product-specific range overrides the category default." onClose={close}>
-    <div className="space-y-4">
-      <div className="rounded-xl bg-[#f5f1e7] p-4">
-        <div className="flex items-center gap-2 text-xs font-extrabold"><Thermometer size={15}/> {hasProductRange ? 'Product-specific temperature' : 'Category temperature'}</div>
-        <p className="mt-2 text-sm">{hasTemperatureRange ? `${rangeMin}°C to ${rangeMax}°C` : 'No temperature range set on this product or category'}</p>
-      </div>
-      <div className="rounded-xl border border-border p-4">
-        <h3 className="text-xs font-extrabold">Category receiving SOP</h3>
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{category?.receivingHandlingSop || 'No receiving instructions have been added to this category yet.'}</p>
-      </div>
-      <div className="flex justify-end"><button data-testid="button-close-product-sop" onClick={close} className="btn btn-primary">Done</button></div>
-    </div>
-  </Modal>;
 }
 function Products() {
   const [search, setSearch] = useState('');
-  const [searchIn, setSearchIn] = useState<'all' | 'product' | 'category' | 'storage'>('all');
+  const [searchIn, setSearchIn] = useState<'all' | 'product' | 'type' | 'category' | 'storage'>('all');
   const [category, setCategory] = useState('');
   const [active, setActive] = useState('true');
   const [dialog, setDialog] = useState(false);
   const [edit, setEdit] = useState<Product>();
-  const [sopProduct, setSopProduct] = useState<Product>();
   const categoriesQuery = useListProductCategories({ query: { queryKey: getListProductCategoriesQueryKey() } });
   const categories = categoriesQuery.data || [];
   const sectionsQuery = useListStockSections({ query: { queryKey: getListStockSectionsQueryKey() } });
@@ -792,18 +933,20 @@ function Products() {
   const searchTerm = search.trim().toLocaleLowerCase();
   const visibleRows = rows.filter((product) => {
     const categoryName = categories.find((item) => item.key === product.category)?.name || product.category;
-    const sectionName = sections.find((section) => section.id === product.defaultSectionId)?.name || '';
+    const sectionNames = new Set([
+      sections.find((section) => section.id === product.defaultSectionId)?.name || '',
+      ...(batchesQuery.data || []).filter((batch) => batch.productId === product.id).map((batch) => batch.sectionName || ''),
+    ]);
+    const sectionName = [...sectionNames].filter(Boolean).join(' ');
     const searchable = {
-      all: `${product.name} ${categoryName} ${sectionName}`,
+      all: `${product.name} ${product.unit} ${product.bundleUnit} ${categoryName} ${sectionName}`,
       product: product.name,
+      type: `${product.unit} ${product.bundleUnit}`,
       category: categoryName,
       storage: sectionName,
     };
     return searchable[searchIn].toLocaleLowerCase().includes(searchTerm);
   });
-  const sopCategory = sopProduct
-    ? categories.find((item) => item.key === sopProduct.category)
-    : undefined;
   return (
     <>
       <PageHeading
@@ -824,15 +967,15 @@ function Products() {
       <div className="panel mb-4 flex flex-col gap-3 p-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-          <input data-testid="input-search-products" className="field pl-9" placeholder="Search products" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <input data-testid="input-search-products" className="field pl-9" placeholder="Search product, type, category or section" value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
-        <select aria-label="Search products in" className="field sm:w-44" value={searchIn} onChange={(event) => setSearchIn(event.target.value as typeof searchIn)}>
-          <option value="all">All fields</option><option value="product">Product name</option><option value="category">Category</option><option value="storage">Storage section</option>
-        </select>
-        <select className="field sm:w-48" value={category} onChange={(event) => setCategory(event.target.value)}>
+        <SearchableSelect aria-label="Search products in" className="sm:w-48" value={searchIn} onChange={(event) => setSearchIn(event.target.value as typeof searchIn)}>
+          <option value="all">All fields</option><option value="product">Product name</option><option value="type">Product type / units</option><option value="category">Category</option><option value="storage">Stock section</option>
+        </SearchableSelect>
+        <SearchableSelect className="sm:w-48" value={category} onChange={(event) => setCategory(event.target.value)}>
           <option value="">All categories</option>
           {categories.map((item) => <option value={item.key} key={item.id}>{item.name}</option>)}
-        </select>
+        </SearchableSelect>
         <select className="field sm:w-40" value={active} onChange={(event) => setActive(event.target.value)}>
           <option value="true">Active products</option>
           <option value="false">Inactive</option>
@@ -878,7 +1021,6 @@ function Products() {
               </div>
               <div className="flex items-center justify-between gap-2 md:justify-end">
                 <span className="md:hidden"><Pill tone={product.active ? 'good' : 'neutral'}>{product.active ? 'Active' : 'Inactive'}</Pill></span>
-                <button data-testid={`button-view-product-sop-${product.id}`} className="btn btn-soft px-2 text-xs" onClick={() => setSopProduct(product)}>Category SOP</button>
                 <button data-testid={`button-edit-product-${product.id}`} className="btn btn-ghost px-2 text-xs" onClick={() => { setEdit(product); setDialog(true); }}>Edit</button>
               </div>
             </div>
@@ -891,7 +1033,6 @@ function Products() {
         </QueryState>
       </section>
       {dialog && <ProductDialog item={edit} close={() => setDialog(false)} />}
-      {sopProduct && <ProductSopDialog product={sopProduct} category={sopCategory} close={() => setSopProduct(undefined)} />}
     </>
   );
 }
@@ -953,7 +1094,7 @@ function Inventory() {
   const params = { ...(productId ? { productId: Number(productId) } : {}), ...(expiring ? { expiringWithinDays: Number(expiring) } : {}) };
   const query = useListStockBatches(params, { query: { queryKey: getListStockBatchesQueryKey(params) } }); const productsQ = useListProducts({ active: true }, { query: { queryKey: getListProductsQueryKey({ active: true }) } }); const rows = query.data || [];
   return <><PageHeading eyebrow="Stock room" title="Inventory" subtitle="Track batches, use-by dates, and make a clear correction." action={<button className="btn btn-primary" onClick={() => setAdjust(true)}><SlidersHorizontal size={15}/> Adjust stock</button>}/>
-    <div className="panel mb-4 flex flex-col gap-3 p-3 sm:flex-row"><div className="flex items-center gap-2 text-xs font-bold text-muted-foreground sm:px-2"><Filter size={15}/> Refine</div><select className="field sm:max-w-xs" value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">All products</option>{(productsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><select className="field sm:w-52" value={expiring} onChange={(e) => setExpiring(e.target.value)}><option value="">Any expiry</option><option value="7">Expiring in 7 days</option><option value="30">Expiring in 30 days</option></select></div>
+    <div className="panel mb-4 flex flex-col gap-3 p-3 sm:flex-row"><div className="flex items-center gap-2 text-xs font-bold text-muted-foreground sm:px-2"><Filter size={15}/> Refine</div><SearchableSelect aria-label="Filter inventory by product" className="sm:max-w-xs" value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">All products</option>{(productsQ.data || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect><select className="field sm:w-52" value={expiring} onChange={(e) => setExpiring(e.target.value)}><option value="">Any expiry</option><option value="7">Expiring in 7 days</option><option value="30">Expiring in 30 days</option></select></div>
     <div className="panel overflow-hidden"><div className="grid grid-cols-[1.3fr_.7fr_1fr_1fr_.8fr] gap-3 border-b border-border bg-muted/50 px-5 py-3 text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground"><span>Product batch</span><span>Quantity</span><span>Storage area</span><span>Received</span><span>Use by</span></div><QueryState loading={query.isLoading} error={query.isError} retry={() => void query.refetch()} hasRows={rows.length > 0} empty={<EmptyState title="No batches in view" detail="Receiving and adjusting stock creates traceable batches here. Try clearing your filters."/>}>
       {rows.map((b) => { const days = b.expiryDate ? Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / 86400000) : Infinity; return <div key={b.id} className="grid grid-cols-[1.3fr_.7fr_1fr_1fr_.8fr] items-center gap-3 border-b border-border/75 px-5 py-4 last:border-0"><div className="min-w-0"><div className="truncate text-xs font-extrabold">{b.productName}</div><div className="mt-1 mono text-[9px] text-muted-foreground">BATCH {String(b.id).padStart(5, '0')}</div></div><span className="mono text-xs">{b.quantity}</span><span className="text-xs text-muted-foreground">{b.sectionName || 'Unassigned'}</span><span className="text-[11px] text-muted-foreground">{dateText(b.receivedAt)}</span><span>{b.expiryDate ? <Pill tone={days <= 3 ? 'bad' : days <= 7 ? 'warn' : 'good'}>{dateText(b.expiryDate)}</Pill> : <span className="text-xs text-muted-foreground">No expiry</span>}</span></div>; })}
     </QueryState></div>
@@ -965,7 +1106,7 @@ function AdjustmentModal({ products, close, done }: { products: Product[]; close
   const [id, setId] = useState(products[0]?.id ? String(products[0].id) : ''); const [sectionId, setSectionId] = useState(''); const [delta, setDelta] = useState(''); const [reason, setReason] = useState(''); const [expiry, setExpiry] = useState('');
   useEffect(() => { if (sections.length && !sections.some((section) => String(section.id) === sectionId)) setSectionId(String(sections[0].id)); }, [sections, sectionId]);
   function submit(e: FormEvent) { e.preventDefault(); mutation.mutate({ data: { productId: Number(id), sectionId: Number(sectionId), quantityDelta: Number(delta), reason: reason.trim(), expiryDate: expiry || null } }, { onSuccess: () => { toast.success('Stock adjusted'); done(); close(); }, onError: (error) => toast.error(error.message || 'Could not adjust stock') }); }
-  return <Modal title="Adjust stock" detail="Record a correction with a reason so the trail stays clear." onClose={close}><form onSubmit={submit} className="space-y-4"><label className="block text-xs font-bold">Product<select required className="field mt-1.5" value={id} onChange={(e) => setId(e.target.value)}>{products.map((p) => <option value={p.id} key={p.id}>{p.name} · {p.stockOnHand} {p.unit}</option>)}</select></label><label className="block text-xs font-bold">Storage area<select required className="field mt-1.5" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>{sections.map((section) => <option value={section.id} key={section.id}>{section.name}</option>)}</select></label><div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold">Change quantity<input required type="number" step=".01" className="field mt-1.5" placeholder="Use - for stock loss" value={delta} onChange={(e) => setDelta(e.target.value)}/></label><label className="block text-xs font-bold">Expiry date (optional)<input type="date" className="field mt-1.5" value={expiry} onChange={(e) => setExpiry(e.target.value)}/></label></div><label className="block text-xs font-bold">Reason<input required className="field mt-1.5" placeholder="Waste, breakage, recount…" value={reason} onChange={(e) => setReason(e.target.value)}/></label><div className="flex justify-end gap-2 pt-2"><button type="button" onClick={close} className="btn btn-soft">Cancel</button><button disabled={mutation.isPending || sectionsQ.isLoading || !products.length || !sectionId} className="btn btn-primary">{mutation.isPending ? 'Saving…' : 'Save adjustment'}</button></div></form></Modal>;
+   return <Modal title="Adjust stock" detail="Record a correction with a reason so the trail stays clear." onClose={close}><form onSubmit={submit} className="space-y-4"><label className="block text-xs font-bold">Product<SearchableSelect required className="mt-1.5" value={id} onChange={(e) => setId(e.target.value)}>{products.map((p) => <option value={p.id} key={p.id}>{p.name} · {p.stockOnHand} {p.unit}</option>)}</SearchableSelect></label><label className="block text-xs font-bold">Storage area<SearchableSelect required className="mt-1.5" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>{sections.map((section) => <option value={section.id} key={section.id}>{section.name}</option>)}</SearchableSelect></label><div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold">Change quantity<input required type="number" step=".01" className="field mt-1.5" placeholder="Use - for stock loss" value={delta} onChange={(e) => setDelta(e.target.value)}/></label><label className="block text-xs font-bold">Expiry date (optional)<input type="date" className="field mt-1.5" value={expiry} onChange={(e) => setExpiry(e.target.value)}/></label></div><label className="block text-xs font-bold">Reason<input required className="field mt-1.5" placeholder="Waste, breakage, recount…" value={reason} onChange={(e) => setReason(e.target.value)}/></label><div className="flex justify-end gap-2 pt-2"><button type="button" onClick={close} className="btn btn-soft">Cancel</button><button disabled={mutation.isPending || sectionsQ.isLoading || !products.length || !sectionId} className="btn btn-primary">{mutation.isPending ? 'Saving…' : 'Save adjustment'}</button></div></form></Modal>;
 }
 
 type DeliveryDraftLine = { productId: string; quantity: string; tempC: string; expiryDate: string };
@@ -1001,7 +1142,7 @@ function DeliveryCreateModal({ close }: { close: () => void }) {
   return <Modal title="Log a delivery" detail="Capture what arrived, then review the server's checks before deciding." onClose={close}><form onSubmit={submit} className="space-y-4">
     {loading && <div className="space-y-2"><div className="skeleton h-10 w-full"/><div className="skeleton h-10 w-3/4"/></div>}
     {(productsQ.isError || categoriesQ.isError || suppliersQ.isError || ordersQ.isError) && <div role="alert" className="rounded-xl bg-[#f6e4df] p-3 text-xs text-[#98483e]">Could not load suppliers, products, categories, or purchase requests. Close and retry once the connection is restored.</div>}
-    <div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold">Supplier<select data-testid="select-delivery-supplier" required className="field mt-1.5" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}><option value="">Choose supplier</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.active ? s.name : `${s.name} (archived on linked request)`}</option>)}</select></label><label className="block text-xs font-bold">Approved purchase order<select data-testid="select-delivery-order" className="field mt-1.5" value={orderId} onChange={(e) => chooseOrder(e.target.value)}><option value="">No purchase order</option>{approvedOrders.map((o) => <option key={o.id} value={o.id}>Request #{o.id} · {o.supplierName || o.requestedBy}</option>)}</select></label></div>
+    <div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold">Supplier<SearchableSelect data-testid="select-delivery-supplier" required className="mt-1.5" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}><option value="">Choose supplier</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.active ? s.name : `${s.name} (archived on linked request)`}</option>)}</SearchableSelect></label><label className="block text-xs font-bold">Approved purchase order<SearchableSelect data-testid="select-delivery-order" className="mt-1.5" value={orderId} onChange={(e) => chooseOrder(e.target.value)}><option value="">No purchase order</option>{approvedOrders.map((o) => <option key={o.id} value={o.id}>Request #{o.id} · {o.supplierName || o.requestedBy}</option>)}</SearchableSelect></label></div>
     <div className="space-y-2">
       <div className="flex items-center justify-between"><h3 className="text-xs font-extrabold">Items received</h3><span className="text-[10px] text-muted-foreground">{lines.length} line{lines.length === 1 ? '' : 's'}</span></div>
       {lines.map((line, i) => {
@@ -1022,7 +1163,7 @@ function DeliveryCreateModal({ close }: { close: () => void }) {
           effectiveTempMinC !== null || effectiveTempMaxC !== null;
         return <div key={i} data-testid={`row-delivery-draft-${i}`} className="rounded-xl border border-border bg-muted/25 p-3">
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_100px_100px]">
-            <label className="block text-[10px] font-bold">Product<select data-testid={`select-delivery-product-${i}`} required className="field mt-1" value={line.productId} onChange={(e) => setLine(i, 'productId', e.target.value)}><option value="">Choose item</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+            <label className="block text-[10px] font-bold">Product<SearchableSelect data-testid={`select-delivery-product-${i}`} required className="mt-1" value={line.productId} onChange={(e) => setLine(i, 'productId', e.target.value)}><option value="">Choose item</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</SearchableSelect></label>
             <label className="block text-[10px] font-bold">Quantity<input data-testid={`input-delivery-quantity-${i}`} required min=".01" step=".01" type="number" className="field mt-1" value={line.quantity} onChange={(e) => setLine(i, 'quantity', e.target.value)}/></label>
             <label className="block text-[10px] font-bold">Probe °C<input data-testid={`input-delivery-temp-${i}`} type="number" min="-60" max="100" step=".1" className="field mt-1" value={line.tempC} onChange={(e) => setLine(i, 'tempC', e.target.value)} placeholder="Optional"/></label>
           </div>
@@ -1077,16 +1218,16 @@ function Deliveries() {
   </>;
 }
 function Orders() {
-  const qc = useQueryClient(); const [status, setStatus] = useState(''); const [create, setCreate] = useState(false); const [receiving, setReceiving] = useState<PurchaseOrder>();
+  const qc = useQueryClient(); const [status, setStatus] = useState(''); const [create, setCreate] = useState(false); const [receiving, setReceiving] = useState<PurchaseOrder>(); const [decisionNotes, setDecisionNotes] = useState<Record<number, string>>({});
   const params = status ? { status: status as 'pending' | 'approved' | 'rejected' | 'partially_received' | 'received' } : {};
   const query = useListPurchaseOrders(params, { query: { queryKey: getListPurchaseOrdersQueryKey(params) } }); const rows = query.data || [];
   const decide = useDecidePurchaseOrder();
-  const invalidate = () => { void qc.invalidateQueries({ queryKey: getListPurchaseOrdersQueryKey() }); void qc.invalidateQueries({ queryKey: getListStockBatchesQueryKey() }); void qc.invalidateQueries({ queryKey: getListProductsQueryKey() }); void qc.invalidateQueries({ queryKey: getListStockMovementsQueryKey() }); void qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() }); };
-  function decideOrder(o: PurchaseOrder, decision: 'approved' | 'rejected') { decide.mutate({ orderId: o.id, data: { decision } }, { onSuccess: () => { toast.success(`Request ${decision}`); invalidate(); }, onError: () => toast.error('Could not update request') }); }
+  const invalidate = () => { void qc.invalidateQueries({ queryKey: getListPurchaseOrdersQueryKey() }); void qc.invalidateQueries({ queryKey: getListStockBatchesQueryKey() }); void qc.invalidateQueries({ queryKey: getListProductsQueryKey() }); void qc.invalidateQueries({ queryKey: getListStockMovementsQueryKey() }); void qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() }); void qc.invalidateQueries({ predicate: query => typeof query.queryKey[0] === 'string' && query.queryKey[0].startsWith('/api/purchase-orders/') && query.queryKey[0].endsWith('/history') }); };
+  function decideOrder(o: PurchaseOrder, decision: 'approved' | 'rejected') { const note = decisionNotes[o.id]?.trim(); if (decision === 'rejected' && !note) { toast.error('A reason is required to decline this request.'); return; } decide.mutate({ orderId: o.id, data: { decision, ...(note ? { note } : {}) } }, { onSuccess: () => { setDecisionNotes(old => { const next = { ...old }; delete next[o.id]; return next; }); toast.success(`Request ${decision}`); invalidate(); }, onError: () => toast.error('Could not update request') }); }
   return <><PageHeading eyebrow="Requests & deliveries" title="Orders" subtitle="Move store requests from need to received, with every decision visible." action={<button onClick={() => setCreate(true)} className="btn btn-primary"><Plus size={16}/> New request</button>}/>
     <div className="mb-4 flex gap-2 overflow-x-auto pb-1">{[['','All orders'],['pending','To review'],['approved','Approved'],['partially_received','Partial'],['received','Received'],['rejected','Rejected']].map(([value,label])=><button key={value} onClick={() => setStatus(value)} className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-bold ${status === value ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground ring-1 ring-border'}`}>{label}</button>)}</div>
     <QueryState loading={query.isLoading} error={query.isError} retry={() => void query.refetch()} hasRows={rows.length > 0} empty={<div className="panel"><EmptyState title="No requests here" detail="When your store needs a top-up, add a request and keep the team in the loop." action={<button onClick={() => setCreate(true)} className="btn btn-primary"><Plus size={15}/> Create a request</button>}/></div>}>
-     <div className="space-y-3">{rows.map((o) => <section key={o.id} className="panel overflow-hidden"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4"><div className="flex items-start gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e8eee7] text-primary"><ShoppingBag size={17}/></span><div><div className="text-sm font-extrabold">Request #{String(o.id).padStart(4, '0')}</div><div className="mt-1 text-[11px] text-muted-foreground">By {o.requestedBy} · {timeText(o.createdAt)}{o.supplierName ? ` · ${o.supplierName}` : ''}</div></div></div><Pill tone={o.status === 'pending' ? 'warn' : o.status === 'rejected' ? 'bad' : o.status === 'received' ? 'good' : 'neutral'}>{titleCase(o.status)}</Pill></div><div className="grid gap-3 border-b border-border/70 bg-[#fbfaf6] px-5 py-4 sm:grid-cols-[1fr_1fr]"><div><div className="mono text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">Deliver to</div><div className="mt-1 text-xs font-extrabold" data-testid={`text-order-outlet-${o.id}`}>{o.outlet.name}</div><div className="mt-1 whitespace-pre-line text-[11px] leading-5 text-muted-foreground" data-testid={`text-order-address-${o.id}`}>{o.outlet.businessAddress || 'Address not added'}</div></div><div><div className="mono text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">Outlet contact</div><div className="mt-1 text-[11px] leading-5 text-muted-foreground">{o.outlet.contactPhone || 'Phone not added'}<br/>{o.outlet.contactEmail || 'Email not added'}</div></div></div><div className="grid gap-2 px-5 py-4 sm:grid-cols-2">{o.lines.map((line) => <div key={line.productId} className="flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2.5"><span className="text-xs font-bold">{line.productName}</span><span className="mono text-[11px]">{line.receivedQuantity}/{line.quantity} {line.unit}</span></div>)}</div>{o.note && <div className="px-5 pb-3 text-xs text-muted-foreground">Note: {o.note}</div>}<div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 bg-muted/30 px-5 py-3"><span className="text-[10px] text-muted-foreground">{o.reviewedBy ? `Reviewed by ${o.reviewedBy}` : 'Awaiting supervisor review'}</span><div className="flex gap-2">{o.status === 'pending' && <><button disabled={decide.isPending} onClick={() => decideOrder(o, 'rejected')} className="btn btn-soft text-xs">Decline</button><button disabled={decide.isPending} onClick={() => decideOrder(o, 'approved')} className="btn btn-primary text-xs"><Check size={14}/> Approve</button></>}{(o.status === 'approved' || o.status === 'partially_received') && <button onClick={() => setReceiving(o)} className="btn btn-primary text-xs"><Package size={14}/> Record delivery</button>}</div></div></section>)}</div>
+     <div className="space-y-3">{rows.map((o) => <section key={o.id} className="panel overflow-hidden"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4"><div className="flex items-start gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e8eee7] text-primary"><ShoppingBag size={17}/></span><div><div className="text-sm font-extrabold">Request #{String(o.id).padStart(4, '0')}</div><div className="mt-1 text-[11px] text-muted-foreground">By {o.requestedBy} · {timeText(o.createdAt)}{o.supplierName ? ` · ${o.supplierName}` : ''}</div></div></div><Pill tone={o.status === 'pending' ? 'warn' : o.status === 'rejected' ? 'bad' : o.status === 'received' ? 'good' : 'neutral'}>{titleCase(o.status)}</Pill></div><div className="grid gap-3 border-b border-border/70 bg-[#fbfaf6] px-5 py-4 sm:grid-cols-[1fr_1fr]"><div><div className="mono text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">Deliver to</div><div className="mt-1 text-xs font-extrabold" data-testid={`text-order-outlet-${o.id}`}>{o.outlet.name}</div><div className="mt-1 whitespace-pre-line text-[11px] leading-5 text-muted-foreground" data-testid={`text-order-address-${o.id}`}>{o.outlet.businessAddress || 'Address not added'}</div></div><div><div className="mono text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground">Outlet contact</div><div className="mt-1 text-[11px] leading-5 text-muted-foreground">{o.outlet.contactPhone || 'Phone not added'}<br/>{o.outlet.contactEmail || 'Email not added'}</div></div></div><div className="grid gap-2 px-5 py-4 sm:grid-cols-2">{o.lines.map((line) => <div key={line.productId} className="flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2.5"><span className="text-xs font-bold">{line.productName}</span><span className="mono text-[11px]">{line.receivedQuantity}/{line.quantity} {line.unit}</span></div>)}</div>{o.note && <div className="px-5 pb-3 text-xs text-muted-foreground">Note: {o.note}</div>}{o.status === 'pending' && <div className="border-t border-border/70 px-5 py-3"><label className="block text-[10px] font-bold">Decision reason<textarea maxLength={1000} className="field mt-1.5 min-h-16 resize-y" value={decisionNotes[o.id] || ''} onChange={event => setDecisionNotes(old => ({ ...old, [o.id]: event.target.value }))} placeholder="Required to decline; optional to approve"/></label><p className="mt-1 text-[10px] font-normal text-muted-foreground">A reason is required when declining. Approvals may be submitted without one.</p></div>}<div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 bg-muted/30 px-5 py-3"><span className="text-[10px] text-muted-foreground">{o.reviewedBy ? `Reviewed by ${o.reviewedBy}` : 'Awaiting supervisor review'}</span><div className="flex gap-2">{o.status === 'pending' && <><button disabled={decide.isPending} onClick={() => decideOrder(o, 'rejected')} className="btn btn-soft text-xs">Decline</button><button disabled={decide.isPending} onClick={() => decideOrder(o, 'approved')} className="btn btn-primary text-xs"><Check size={14}/> Approve</button></>}{(o.status === 'approved' || o.status === 'partially_received') && <button onClick={() => setReceiving(o)} className="btn btn-primary text-xs"><Package size={14}/> Record delivery</button>}</div></div></section>)}</div>
     </QueryState>
     {create && <OrderCreateModal close={() => setCreate(false)} done={invalidate}/>}
     {receiving && <ReceiveModal order={receiving} close={() => setReceiving(undefined)} done={invalidate}/>}
@@ -1098,7 +1239,7 @@ function OrderCreateModal({ close, done }: { close: () => void; done: () => void
   const setLine = (i: number, key: 'productId' | 'quantity', value: string) => setLines((old) => old.map((l, j) => i === j ? { ...l, [key]: value } : l));
   function submit(e: FormEvent) { e.preventDefault(); const data = { note: note || undefined, supplierId: supplierId ? Number(supplierId) : null, lines: lines.filter((l) => l.productId).map((l) => ({ productId: Number(l.productId), quantity: Number(l.quantity) })) }; create.mutate({ data }, { onSuccess: () => { toast.success('Request sent for review'); done(); void qc.invalidateQueries({ queryKey: getListPurchaseOrdersQueryKey() }); close(); }, onError: () => toast.error('Could not create request') }); }
   const products = productsQ.data || [];
-  return <Modal title="New stock request" detail="Request the quantities your store needs next." onClose={close}><form onSubmit={submit} className="space-y-4"><label className="block text-xs font-bold">Supplier (optional)<select data-testid="select-order-supplier" className="field mt-1.5" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}><option value="">Choose later</option>{(suppliersQ.data || []).filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><div className="space-y-2">{lines.map((line, i) => <div key={i} className="grid grid-cols-[1fr_100px_34px] gap-2"><select data-testid={`select-order-product-${i}`} required className="field" value={line.productId} onChange={(e) => setLine(i, 'productId', e.target.value)}><option value="">Choose a product</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.unit}</option>)}</select><input data-testid={`input-order-quantity-${i}`} className="field" required min=".01" step=".01" type="number" value={line.quantity} onChange={(e) => setLine(i, 'quantity', e.target.value)} aria-label={`Quantity for line ${i + 1}`}/><button data-testid={`button-remove-order-line-${i}`} type="button" onClick={() => setLines((old) => old.length > 1 ? old.filter((_,j) => i !== j) : old)} className="btn btn-ghost p-2" aria-label="Remove line"><X size={15}/></button></div>)}</div><button data-testid="button-add-order-line" type="button" onClick={() => setLines((l) => [...l, { productId: '', quantity: '1' }])} className="btn btn-soft text-xs"><Plus size={14}/> Add another item</button><label className="block text-xs font-bold">Note to supervisor<textarea data-testid="input-order-note" className="field mt-1.5 min-h-20 resize-y" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What's behind this request?"/></label><div className="flex justify-end gap-2 pt-2"><button data-testid="button-cancel-order" type="button" onClick={close} className="btn btn-soft">Cancel</button><button data-testid="button-submit-order" disabled={create.isPending || products.length === 0} className="btn btn-primary">{create.isPending ? 'Sending…' : 'Send request'}</button></div></form></Modal>;
+   return <Modal title="New stock request" detail="Request the quantities your store needs next." onClose={close}><form onSubmit={submit} className="space-y-4"><label className="block text-xs font-bold">Supplier (optional)<SearchableSelect data-testid="select-order-supplier" className="mt-1.5" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}><option value="">Choose later</option>{(suppliersQ.data || []).filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</SearchableSelect></label><div className="space-y-2">{lines.map((line, i) => <div key={i} className="grid grid-cols-[1fr_100px_34px] gap-2"><SearchableSelect data-testid={`select-order-product-${i}`} required value={line.productId} onChange={(e) => setLine(i, 'productId', e.target.value)}><option value="">Choose a product</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.unit}</option>)}</SearchableSelect><input data-testid={`input-order-quantity-${i}`} className="field" required min=".01" step=".01" type="number" value={line.quantity} onChange={(e) => setLine(i, 'quantity', e.target.value)} aria-label={`Quantity for line ${i + 1}`}/><button data-testid={`button-remove-order-line-${i}`} type="button" onClick={() => setLines((old) => old.length > 1 ? old.filter((_,j) => i !== j) : old)} className="btn btn-ghost p-2" aria-label="Remove line"><X size={15}/></button></div>)}</div><button data-testid="button-add-order-line" type="button" onClick={() => setLines((l) => [...l, { productId: '', quantity: '1' }])} className="btn btn-soft text-xs"><Plus size={14}/> Add another item</button><label className="block text-xs font-bold">Note to supervisor<textarea data-testid="input-order-note" className="field mt-1.5 min-h-20 resize-y" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What's behind this request?"/></label><div className="flex justify-end gap-2 pt-2"><button data-testid="button-cancel-order" type="button" onClick={close} className="btn btn-soft">Cancel</button><button data-testid="button-submit-order" disabled={create.isPending || products.length === 0} className="btn btn-primary">{create.isPending ? 'Sending…' : 'Send request'}</button></div></form></Modal>;
 }
 function ReceiveModal({ order, close, done }: { order: PurchaseOrder; close: () => void; done: () => void }) {
   const mutation = useReceivePurchaseOrder(); const [qty, setQty] = useState<Record<number,string>>(Object.fromEntries(order.lines.map((l) => [l.productId, String(Math.max(0, l.quantity - l.receivedQuantity))]))); const [expiry, setExpiry] = useState('');
@@ -1107,11 +1248,12 @@ function ReceiveModal({ order, close, done }: { order: PurchaseOrder; close: () 
 }
 
 function Counts() {
-  const qc = useQueryClient(); const [, setLocation] = useLocation(); const query = useListStockCounts({ query: { queryKey: getListStockCountsQueryKey() } }); const create = useCreateStockCount(); const [scope, setScope] = useState<StockCountInputScope>('all'); const [scopeCategory, setScopeCategory] = useState<ProductCategory>('food'); const [scopeProduct, setScopeProduct] = useState(''); const [showNew, setShowNew] = useState(false);
+  const qc = useQueryClient(); const [, setLocation] = useLocation(); const query = useListStockCounts({ query: { queryKey: getListStockCountsQueryKey() } }); const create = useCreateStockCount(); const [scope, setScope] = useState<StockCountInputScope>('all'); const [scopeCategory, setScopeCategory] = useState<ProductCategory>(''); const [scopeProduct, setScopeProduct] = useState(''); const [showNew, setShowNew] = useState(false);
   const categoriesQ = useListProductCategories({ query: { queryKey: getListProductCategoriesQueryKey() } });
   const categories = categoriesQ.data || [];
   const products = useListProducts({ active: true }, { query: { queryKey: getListProductsQueryKey({ active: true }) } });
-  function start(e: FormEvent) { e.preventDefault(); const data = { scope, ...(scope === 'category' ? { category: scopeCategory } : {}), ...(scope === 'product' ? { productId: Number(scopeProduct) } : {}) }; create.mutate({ data }, { onSuccess: (count) => { toast.success('Count started'); void qc.invalidateQueries({ queryKey: getListStockCountsQueryKey() }); setLocation(`/counts/${count.id}`); }, onError: () => toast.error('Could not start count') }); }
+  useEffect(() => { if (!scopeCategory && categories[0]) setScopeCategory(categories[0].key); }, [categories, scopeCategory]);
+  function start(e: FormEvent) { e.preventDefault(); if (scope === 'category' && !categories.some((category) => category.key === scopeCategory)) { toast.error('Add a product category before starting a category count.'); return; } const data = { scope, ...(scope === 'category' ? { category: scopeCategory } : {}), ...(scope === 'product' ? { productId: Number(scopeProduct) } : {}) }; create.mutate({ data }, { onSuccess: (count) => { toast.success('Count started'); void qc.invalidateQueries({ queryKey: getListStockCountsQueryKey() }); setLocation(`/counts/${count.id}`); }, onError: () => toast.error('Could not start count') }); }
   const rows = query.data || [];
   return <><PageHeading eyebrow="Count sessions" title="Stock counts" subtitle="A reliable count turns assumptions into a usable number." action={<button onClick={() => setShowNew(true)} className="btn btn-primary"><FilePlus2 size={16}/> Start count</button>}/>
     <div className="grid gap-4 sm:grid-cols-3"><div className="panel flex items-center gap-3 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#e8eee7] text-primary"><ClipboardCheck size={18}/></div><div><div className="mono text-xl font-medium">{rows.filter((c) => c.status === 'in_progress').length}</div><div className="text-[10px] text-muted-foreground">In progress</div></div></div><div className="panel flex items-center gap-3 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f5efd9] text-[#8b641e]"><CheckCircle2 size={18}/></div><div><div className="mono text-xl font-medium">{rows.filter((c) => c.status === 'completed').length}</div><div className="text-[10px] text-muted-foreground">Completed</div></div></div><div className="panel flex items-center gap-3 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#ece8df] text-[#6d706a]"><Package size={18}/></div><div><div className="mono text-xl font-medium">{products.data?.length ?? '—'}</div><div className="text-[10px] text-muted-foreground">Products to count</div></div></div></div>
@@ -1298,7 +1440,7 @@ function MovementRows({ rows, baseUnits = new Map<number, string>() }: { rows: S
     </details>)}</div>
   </section>)}</div> : <EmptyState title="No movements in this view" detail="Try changing the filters. Receipts, adjustments, transfers, and count changes appear here."/>;
 }
-function ActivityPage() {
+function ActivityPageLegacy() {
   const [productId, setProductId] = useState('');
   const [sectionName, setSectionName] = useState('');
   const [movementType, setMovementType] = useState('');
@@ -1414,10 +1556,10 @@ function ActivityPage() {
     </div>
     <div className="panel mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3">
       <label className="relative block"><Search size={15} className="absolute left-3 top-3 text-muted-foreground"/><input aria-label="Search activity" className="field pl-9" placeholder="Search stock or access changes…" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="input-search-activity"/></label>
-      <select aria-label="Filter activity by product" className="field" value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">All products</option>{(productsQ.data || []).map((p) => <option value={p.id} key={p.id}>{p.name}</option>)}</select>
-      <select aria-label="Filter activity by section" className="field" value={sectionName} onChange={(e) => setSectionName(e.target.value)}><option value="">All stock sections</option>{sectionNames.map((name) => <option value={name} key={name}>{name}</option>)}</select>
+       <SearchableSelect aria-label="Filter activity by product" value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">All products</option>{(productsQ.data || []).map((p) => <option value={p.id} key={p.id}>{p.name}</option>)}</SearchableSelect>
+       <SearchableSelect aria-label="Filter activity by section" value={sectionName} onChange={(e) => setSectionName(e.target.value)}><option value="">All stock sections</option>{sectionNames.map((name) => <option value={name} key={name}>{name}</option>)}</SearchableSelect>
       <select aria-label="Filter activity by movement type" className="field" value={movementType} onChange={(e) => setMovementType(e.target.value)}><option value="">All movement types</option>{movementTypes.map((type) => <option key={type} value={type}>{titleCase(type)}</option>)}</select>
-      <select aria-label="Filter activity by person" className="field" value={actor} onChange={(e) => setActor(e.target.value)}><option value="">Everyone</option>{actors.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+       <SearchableSelect aria-label="Filter activity by person" value={actor} onChange={(e) => setActor(e.target.value)}><option value="">Everyone</option>{actors.map((name) => <option key={name} value={name}>{name}</option>)}</SearchableSelect>
       <label className="text-[10px] font-bold text-muted-foreground">From<input aria-label="Activity from date" className="field mt-1 block w-full" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}/></label>
       <label className="text-[10px] font-bold text-muted-foreground">To<input aria-label="Activity to date" className="field mt-1 block w-full" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}/></label>
       <div className="flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground sm:col-span-2 lg:col-span-3">
@@ -1431,12 +1573,12 @@ function ActivityPage() {
         <p className="mt-1 text-[11px] text-muted-foreground">Staff access changes and password recovery for {securityRows[0]?.outletName || 'this outlet'}.</p>
       </div>
       <div className="grid gap-3 border-b border-border/75 p-3 sm:grid-cols-3">
-        <select aria-label="Filter access changes by teammate" className="field" value={accessTarget} onChange={(event) => setAccessTarget(event.target.value)} data-testid="select-filter-access-teammate">
+        <SearchableSelect aria-label="Filter access changes by teammate" className="field" value={accessTarget} onChange={(event) => setAccessTarget(event.target.value)} data-testid="select-filter-access-teammate">
           <option value="">All teammates</option>{accessTargets.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-        <select aria-label="Filter access changes by section" className="field" value={accessSection} onChange={(event) => setAccessSection(event.target.value)} data-testid="select-filter-access-section">
+        </SearchableSelect>
+        <SearchableSelect aria-label="Filter access changes by section" className="field" value={accessSection} onChange={(event) => setAccessSection(event.target.value)} data-testid="select-filter-access-section">
           <option value="">All changed sections</option>{accessSections.map((section) => <option key={section} value={section}>{staffAccessSections.find((item) => item.key === section)?.label || titleCase(section)}</option>)}
-        </select>
+        </SearchableSelect>
         <div className="flex items-center text-[10px] text-muted-foreground" data-testid="text-access-event-count">{accessEvents.length} matching staff access change{accessEvents.length === 1 ? '' : 's'}</div>
       </div>
       <QueryState
@@ -1477,6 +1619,173 @@ function ActivityPage() {
     </section>
   </>;
 }
+
+const ACTIVITY_GROUPS = [
+  { id: 'all', label: 'All' },
+  { id: 'deliveries', label: 'Deliveries' },
+  { id: 'orders', label: 'Purchase orders' },
+  { id: 'stock', label: 'Stock counts' },
+  { id: 'catalogue', label: 'Products & suppliers' },
+  { id: 'team', label: 'Team & settings' },
+] as const;
+
+function activityDayKey(value: string) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function activityDayLabel(value: string) {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function activityTone(action: string) {
+  const value = action.toLowerCase();
+  if (value.includes('reject') || value.includes('cancel') || value.includes('return')) {
+    return 'bg-[#f7e8e6] text-[#a74e48]';
+  }
+  if (value.includes('accept') || value.includes('counted') || value.includes('issued') || value.includes('approved')) {
+    return 'bg-[#e7eee7] text-[#35684b]';
+  }
+  return 'bg-[#e9edf9] text-[#23347f]';
+}
+
+function ActivityPage() {
+  const [group, setGroup] = useState<(typeof ACTIVITY_GROUPS)[number]['id']>('all');
+  const [person, setPerson] = useState('');
+  const query = useListActivity({
+    query: {
+      queryKey: getListActivityQueryKey(),
+      refetchOnMount: 'always',
+    },
+  });
+  const entries = query.data || [];
+  const people = [...new Set(entries.map((entry) => entry.actor).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const filtered = entries.filter((entry) =>
+    (group === 'all' || entry.group === group) &&
+    (!person || entry.actor === person),
+  );
+
+  const folded: { entry: ActivityEntry; times: number }[] = [];
+  for (const entry of filtered) {
+    const last = folded[folded.length - 1];
+    if (
+      last &&
+      last.entry.actor === entry.actor &&
+      last.entry.action === entry.action &&
+      last.entry.detail === entry.detail &&
+      last.entry.target === entry.target &&
+      activityDayKey(last.entry.at) === activityDayKey(entry.at)
+    ) {
+      last.times += 1;
+    } else {
+      folded.push({ entry, times: 1 });
+    }
+  }
+
+  const days: { key: string; label: string; entries: typeof folded }[] = [];
+  for (const item of folded) {
+    const key = activityDayKey(item.entry.at);
+    if (days[days.length - 1]?.key !== key) {
+      days.push({ key, label: activityDayLabel(item.entry.at), entries: [] });
+    }
+    days[days.length - 1].entries.push(item);
+  }
+
+  return <>
+    <PageHeading
+      eyebrow="Workspace trail"
+      title="Activity log"
+      subtitle="Every delivery check, purchase order, stock count, catalogue change, and team change, newest first."
+    />
+    <section className="panel mb-5 space-y-4 p-4 sm:p-5">
+      <div className="w-full max-w-[38rem]">
+        <label className="mb-1 block text-xs font-bold text-muted-foreground" htmlFor="activity-person">Person</label>
+        <SearchableSelect
+          id="activity-person"
+          className="field"
+          value={person}
+          onChange={(e) => setPerson(e.target.value)}
+          data-testid="select-activity-person"
+        >
+          <option value="">Everyone</option>
+          {people.map((name) => <option value={name} key={name}>{name}</option>)}
+        </SearchableSelect>
+      </div>
+      <div role="group" aria-label="Show activity" className="flex flex-wrap gap-2 border-t border-border pt-3">
+        {ACTIVITY_GROUPS.map((filter) => <button
+          key={filter.id}
+          type="button"
+          aria-pressed={group === filter.id}
+          onClick={() => setGroup(filter.id)}
+          className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
+            group === filter.id
+              ? 'bg-[#172879] text-white shadow-sm'
+              : 'bg-white text-[#333b57] ring-1 ring-border hover:bg-[#f5f6fa]'
+          }`}
+          data-testid={`button-activity-filter-${filter.id}`}
+        >{filter.label}</button>)}
+      </div>
+    </section>
+
+    <QueryState
+      loading={query.isLoading}
+      error={query.isError}
+      retry={() => void query.refetch()}
+      hasRows={filtered.length > 0}
+      empty={<EmptyState
+        title={entries.length === 0 ? 'No activity yet' : person ? 'No activity by this person yet' : 'Nothing of this kind yet'}
+        detail={entries.length === 0 ? 'Delivery checks, order decisions, stock counts, product and supplier edits, and team changes will appear here.' : 'Choose a different person or activity type to see more.'}
+      />}
+    >
+      <div className="space-y-5">
+        {days.map((day) => <section key={day.key} className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground">{day.label}</h2>
+            <span className="text-[10px] text-muted-foreground">{day.entries.length} entr{day.entries.length === 1 ? 'y' : 'ies'}</span>
+          </div>
+          <ul className="panel divide-y divide-border/70 overflow-hidden">
+            {day.entries.map(({ entry, times }) => {
+              const Icon = entry.group === 'deliveries'
+                ? Truck
+                : entry.group === 'orders'
+                  ? ShoppingBag
+                  : entry.group === 'stock'
+                    ? ClipboardCheck
+                    : entry.group === 'catalogue'
+                      ? Package
+                      : Users;
+              const detail = [entry.target, entry.detail].filter(Boolean).join(' · ');
+              return <li key={entry.id} className="flex items-start gap-3 px-4 py-3 sm:px-5">
+                <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${activityTone(entry.action)}`}>
+                  <Icon aria-hidden size={16}/>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-foreground">
+                    {entry.action}
+                    {times > 1 && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">×{times}</span>}
+                  </p>
+                  {detail && <p className="break-words text-xs leading-relaxed text-muted-foreground">{detail}</p>}
+                </div>
+                <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+                  <time dateTime={entry.at}>{new Date(entry.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</time>
+                  <span className="block max-w-28 truncate sm:max-w-48">{entry.actor}</span>
+                </p>
+              </li>;
+            })}
+          </ul>
+        </section>)}
+      </div>
+    </QueryState>
+  </>;
+}
+
 function Team() {
   const qc = useQueryClient();
   const query = useListStoreUsers({ query: { queryKey: getListStoreUsersQueryKey(), refetchOnMount: 'always', refetchInterval: 30_000 } });
@@ -1904,6 +2213,94 @@ function OutletsPage() {
     </section>
   </>;
 }
+function SettingsHub() {
+  const [location] = useLocation();
+  const { data: user, isLoading, isError, refetch } = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
+  const items = [
+    { href: '/settings/activity', label: 'Activity log', detail: 'Review who changed stock, orders and receiving records.', icon: Activity, show: user?.access.activity !== 'none' },
+    { href: '/settings/team', label: 'Team access', detail: 'Manage staff accounts, roles and section permissions.', icon: Users, show: ['owner', 'admin', 'supervisor'].includes(user?.role || '') },
+    { href: '/settings/outlets', label: 'Manage outlets', detail: 'Add outlets and manage outlet details and access.', icon: Building2, show: Boolean(user?.workspace?.isOwner || user?.outlets?.some((outlet) => outlet.role === 'supervisor')) },
+    { href: '/settings/workspace', label: 'Workspace settings', detail: 'Edit the business name, contact details and address.', icon: Settings, show: Boolean(user?.workspace?.isOwner) },
+  ].filter(item => item.show);
+  const settingsLinks = [
+    { href: '/settings/profile', label: 'Profile & security', detail: 'Update your profile and password.', icon: UserRound },
+    ...items.map(({ href, label, icon }) => ({ href, label, icon })),
+  ];
+  const section = location.split('/')[2] || '';
+  const sectionContent: Record<string, ReactNode> = {
+    profile: <AccountPage/>,
+    activity: <ActivityPage/>,
+    team: <Team/>,
+    outlets: <OutletsPage/>,
+    workspace: <WorkspaceSettingsPage/>,
+  };
+  const sectionBlocked =
+    (section === 'activity' && user?.access.activity === 'none') ||
+    (section === 'team' && !['owner', 'admin', 'supervisor'].includes(user?.role ?? '')) ||
+    (section === 'outlets' && !(user?.workspace?.isOwner || user?.outlets?.some((outlet) => outlet.role === 'supervisor'))) ||
+    (section === 'workspace' && !user?.workspace?.isOwner);
+  return <>
+    <PageHeading eyebrow="Workspace" title="Settings" subtitle="Your profile, team, activity and workspace details."/>
+    <QueryState loading={isLoading} error={isError} retry={() => void refetch()}>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="panel flex gap-1 overflow-x-auto p-2 lg:flex-col lg:overflow-visible">
+          <div className="hidden px-3 py-2 text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground lg:block">Settings</div>
+          {settingsLinks.map(({ href, label, icon: Icon }) => <Link
+            key={href}
+            href={href}
+            aria-current={location === href ? 'page' : undefined}
+            className={`flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-semibold transition lg:w-full ${location === href ? 'bg-[#f1f4ed] text-primary' : 'text-foreground/80 hover:bg-[#f1f4ed] hover:text-primary'}`}
+          >
+            <Icon size={16} className="shrink-0 text-muted-foreground"/>
+            <span className="whitespace-nowrap">{label}</span>
+          </Link>)}
+        </nav>
+        <main className="min-w-0">
+          {sectionBlocked ? <div role="alert" className="panel p-6 text-center"><ShieldCheck className="mx-auto text-primary" size={24}/><h2 className="mt-3 text-lg font-extrabold">This settings section is not available</h2><p className="mt-2 text-sm text-muted-foreground">Ask your owner or manager to update your access for this outlet.</p></div> : sectionContent[section] || <section className="panel min-w-0 p-5 sm:p-7">
+            <div className="flex items-start gap-4 border-b border-border pb-5">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#f0eadc] text-primary"><Settings size={19}/></div>
+              <div><h2 className="text-lg font-extrabold">Account and workspace</h2><p className="mt-1 text-sm text-muted-foreground">Choose an area to manage your profile or the active outlet.</p></div>
+            </div>
+            <div className="mt-5 grid min-w-0 gap-3 sm:grid-cols-2">
+              {settingsLinks.map(item => { const Icon = item.icon; const detail = 'detail' in item ? item.detail : 'Manage your profile and password.'; return <Link key={item.href} href={item.href} className="group flex min-w-0 items-start gap-3 rounded-xl border border-border p-4 transition hover:border-primary/40 hover:bg-[#fbfaf6]">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#e8eee7] text-primary"><Icon size={18}/></span>
+                <span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2 text-sm font-extrabold">{item.label}<ArrowRight size={14} className="shrink-0 text-muted-foreground transition group-hover:translate-x-1 group-hover:text-primary"/></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{detail}</span></span>
+              </Link>; })}
+            </div>
+            {items.length === 0 && <p className="mt-4 text-xs text-muted-foreground">Your account is available here; workspace management is reserved for authorized roles.</p>}
+          </section>}
+        </main>
+      </div>
+    </QueryState>
+  </>;
+}
+
+function HelpGuidesPage() {
+  const modules = [
+    { label: 'Dashboard', path: '/dashboard' },
+    { label: 'Products & categories', path: '/products' },
+    { label: 'Suppliers', path: '/suppliers' },
+    { label: 'Purchase orders', path: '/orders' },
+    { label: 'Deliveries', path: '/deliveries' },
+    { label: 'Approvals', path: '/approvals' },
+    { label: 'Stock count', path: '/counts' },
+    { label: 'Stock transfers', path: '/stock-transfers' },
+    { label: 'Activity log', path: '/activity' },
+    { label: 'Team', path: '/team' },
+    { label: 'Outlets', path: '/outlets' },
+    { label: 'My account and settings', path: '/settings' },
+  ];
+  return <>
+    <PageHeading eyebrow="Help" title="Help & guides" subtitle="Open a short guide for each part of your stockroom."/>
+    <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {modules.map((module) => <article key={module.path} className="panel flex min-w-0 items-center justify-between gap-3 p-4">
+        <div className="min-w-0"><h2 className="truncate text-sm font-extrabold">{module.label}</h2><p className="mt-1 text-xs text-muted-foreground">Steps and guidance for this module.</p></div>
+        <div className="flex shrink-0 items-center gap-2"><ModuleGuideButton path={module.path}/><Link href={module.path} className="btn btn-soft px-3 py-2 text-xs">Open</Link></div>
+      </article>)}
+    </div>
+  </>;
+}
+
 function WorkspaceSettingsPage() {
   const qc = useQueryClient();
   const { data: user, isLoading, isError, refetch } = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
@@ -2106,13 +2503,15 @@ function AppRoutes() {
     <Route path="/orders"><Protected><ContentShell title="Purchase orders"><OrdersPage/></ContentShell></Protected></Route>
     <Route path="/deliveries"><Protected><ContentShell title="Deliveries"><DeliveriesPage/></ContentShell></Protected></Route>
     <Route path="/approvals"><Protected><ContentShell title="Approvals"><ApprovalsPage/></ContentShell></Protected></Route>
-    <Route path="/counts"><Protected><ContentShell title="Stock counts"><CountsPage/></ContentShell></Protected></Route>
+    <Route path="/counts"><Protected><ContentShell title="Stock count"><CountsPage/></ContentShell></Protected></Route>
     <Route path="/counts/:countId"><Protected><ContentShell title="Count session"><CountDetailPage/></ContentShell></Protected></Route>
-    <Route path="/activity"><Protected><ContentShell title="Activity"><ActivityPage/></ContentShell></Protected></Route>
-    <Route path="/team"><Protected><ContentShell title="Team"><Team/></ContentShell></Protected></Route>
-    <Route path="/outlets"><Protected><ContentShell title="Outlets"><OutletsPage/></ContentShell></Protected></Route>
-    <Route path="/account/*?"><Protected><ContentShell title="My account"><AccountPage/></ContentShell></Protected></Route>
-    <Route path="/settings"><Protected><ContentShell title="Workspace settings"><WorkspaceSettingsPage/></ContentShell></Protected></Route>
+    <Route path="/expiry"><Protected><ContentShell title="Expiry dates"><ExpiryPage/></ContentShell></Protected></Route>
+    <Route path="/activity"><Redirect to="/settings/activity"/></Route>
+    <Route path="/team"><Redirect to="/settings/team"/></Route>
+    <Route path="/outlets"><Redirect to="/settings/outlets"/></Route>
+    <Route path="/account/*?"><Redirect to="/settings/profile"/></Route>
+    <Route path="/help"><Protected><ContentShell title="Help & guides"><HelpGuidesPage/></ContentShell></Protected></Route>
+    <Route path="/settings/:section?"><Protected><ContentShell title="Settings"><SettingsHub/></ContentShell></Protected></Route>
     <Route><NotFound/></Route>
   </Switch>;
 }
