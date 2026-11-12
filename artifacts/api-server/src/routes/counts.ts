@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lte, not, or, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { Readable } from "node:stream";
 import {
@@ -92,8 +92,13 @@ async function getCount(countId: number, storeroomId: number) {
     .from(stockCountLinesTable)
     .where(eq(stockCountLinesTable.countId, countId))
     .orderBy(stockCountLinesTable.productName, stockCountLinesTable.sectionNameSnapshot);
-  const productIds = [...new Set(lines.map((line) => line.productId))];
-  const movements = productIds.length === 0
+  const linePairs = lines.map((line) => and(
+    eq(stockMovementsTable.productId, line.productId),
+    line.sectionId === null
+      ? isNull(stockMovementsTable.sectionId)
+      : eq(stockMovementsTable.sectionId, line.sectionId),
+  )!);
+  const movements = linePairs.length === 0
     ? []
     : await db
         .select({
@@ -112,8 +117,17 @@ async function getCount(countId: number, storeroomId: number) {
         .innerJoin(productsTable, eq(productsTable.id, stockMovementsTable.productId))
         .where(and(
           eq(productsTable.storeroomId, storeroomId),
-          inArray(stockMovementsTable.productId, productIds),
+          or(...linePairs),
           gt(stockMovementsTable.occurredAt, count.createdAt),
+          ...(count.completedAt
+            ? [
+                lte(stockMovementsTable.occurredAt, count.completedAt),
+                not(and(
+                  eq(stockMovementsTable.type, "count"),
+                  eq(stockMovementsTable.reason, `Stock count #${count.id}`),
+                )!),
+              ]
+            : []),
         ))
         .orderBy(stockMovementsTable.occurredAt, stockMovementsTable.id);
   return { ...count, workbook: workbookResponse(count), lines, movements };
@@ -223,6 +237,8 @@ router.post(
         .values({
           storeroomId: req.storeroomId!,
           scope,
+          ...(parsed.data.countDate ? { countDate: parsed.data.countDate } : {}),
+          notes: parsed.data.notes?.trim() ?? "",
           createdBy: req.storeUser!.name,
         })
         .returning();
@@ -411,19 +427,6 @@ router.post(
       res.status(400).json({ error: "Workbook does not belong to this count session." });
       return;
     }
-    if (body.data.workbookObjectPath) {
-      try {
-        const file = await objectStorage.getObjectEntityFile(body.data.workbookObjectPath);
-        await objectStorage.getWorkbookMetadata(file);
-      } catch (error) {
-        if (error instanceof ObjectNotFoundError || error instanceof InvalidWorkbookError) {
-          res.status(400).json({ error: "Uploaded workbook is missing or invalid. Upload it again." });
-          return;
-        }
-        throw error;
-      }
-    }
-
     try {
       await db.transaction(async (tx) => {
         const [count] = await tx
@@ -440,19 +443,36 @@ router.post(
         if (count.status !== "in_progress") {
           throw new ApiError(409, "This stock count is already complete.");
         }
+        if (body.data.workbookObjectPath) {
+          try {
+            const file = await objectStorage.getObjectEntityFile(body.data.workbookObjectPath);
+            await objectStorage.getWorkbookMetadata(file);
+          } catch (error) {
+            if (error instanceof ObjectNotFoundError || error instanceof InvalidWorkbookError) {
+              throw new ApiError(400, "Uploaded workbook is missing or invalid. Upload it again.");
+            }
+            throw error;
+          }
+        }
 
         const lines = await tx
           .select()
           .from(stockCountLinesTable)
           .where(eq(stockCountLinesTable.countId, count.id))
           .for("update");
+        const countLinePairs = lines.map((line) => and(
+          eq(stockMovementsTable.productId, line.productId),
+          line.sectionId === null
+            ? isNull(stockMovementsTable.sectionId)
+            : eq(stockMovementsTable.sectionId, line.sectionId),
+        )!);
         const currentMovements = await tx
           .select({ id: stockMovementsTable.id })
           .from(stockMovementsTable)
           .innerJoin(productsTable, eq(productsTable.id, stockMovementsTable.productId))
           .where(and(
             eq(productsTable.storeroomId, req.storeroomId!),
-            inArray(stockMovementsTable.productId, [...new Set(lines.map((line) => line.productId))]),
+            or(...countLinePairs),
             gt(stockMovementsTable.occurredAt, count.createdAt),
           ));
         const acknowledgedMovementIds = new Set(body.data.acknowledgedMovementIds);
@@ -516,6 +536,10 @@ router.post(
           .set({
             status: "completed",
             completedAt: new Date(),
+            completedBy: req.storeUser!.name,
+            ...(body.data.notes !== undefined
+              ? { notes: body.data.notes.trim() }
+              : {}),
             ...(body.data.workbookObjectPath && workbookName
               ? {
                   workbookObjectPath: body.data.workbookObjectPath,

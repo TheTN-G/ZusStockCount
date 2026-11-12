@@ -731,6 +731,27 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/StockBatch" }
+  /inventory/batches/{batchId}/expiry:
+    put:
+      operationId: updateStockBatchExpiry
+      tags: [inventory]
+      summary: Set or correct a stock batch expiry date
+      parameters:
+        - in: path
+          name: batchId
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockBatchExpiryInput" }
+      responses:
+        "200":
+          description: Updated stock batch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockBatch" }
   /inventory/adjustments:
     post:
       operationId: createStockAdjustment
@@ -796,7 +817,7 @@ paths:
     patch:
       operationId: updatePurchaseOrderDraft
       tags: [orders]
-      summary: Edit a purchase-order draft
+      summary: Edit a draft or pending purchase-order request
       parameters:
         - in: path
           name: orderId
@@ -809,7 +830,7 @@ paths:
             schema: { $ref: "#/components/schemas/PurchaseOrderUpdateInput" }
       responses:
         "200":
-          description: Updated purchase-order draft
+          description: Updated purchase-order request
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PurchaseOrder" }
@@ -849,7 +870,8 @@ paths:
     post:
       operationId: decidePurchaseOrder
       tags: [orders]
-      summary: Approve or reject a legacy purchase request
+      summary: Approve or reject a purchase request
+      description: Rejections require a non-whitespace note; approvals may omit the note.
       parameters:
         - in: path
           name: orderId
@@ -866,6 +888,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PurchaseOrder" }
+        "400":
+          description: Invalid decision or missing rejection reason
   /purchase-orders/{orderId}/receipts:
     post:
       operationId: receivePurchaseOrder
@@ -887,6 +911,50 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PurchaseOrder" }
+  /purchase-orders/{orderId}/history:
+    get:
+      operationId: getPurchaseOrderHistory
+      tags: [orders]
+      summary: Get an outlet purchase order's change and decision history
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Purchase-order history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PurchaseOrderHistoryEntry" }
+  /purchase-orders/history/export:
+    get:
+      operationId: getPurchaseOrderHistoryExport
+      tags: [orders]
+      summary: Get purchase-order history for export from the selected outlet
+      parameters:
+        - in: query
+          name: startDate
+          description: Include history events on or after this date (UTC)
+          schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        - in: query
+          name: endDate
+          description: Include history events on or before this date (UTC)
+          schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        - in: query
+          name: status
+          description: Include history events with this order status
+          schema: { $ref: "#/components/schemas/OrderStatus" }
+      responses:
+        "200":
+          description: Purchase-order history entries for the selected outlet
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PurchaseOrderHistoryExportEntry" }
   /deliveries:
     get:
       operationId: listDeliveries
@@ -1082,6 +1150,19 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/StockMovement" }
+  /activity:
+    get:
+      operationId: listActivity
+      tags: [activity]
+      summary: List the selected outlet's activity timeline
+      responses:
+        "200":
+          description: Unified activity entries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ActivityEntry" }
   /users/{userId}/role:
     patch:
       operationId: updateStoreUserRole
@@ -1403,7 +1484,7 @@ components:
         access: { $ref: "#/components/schemas/StoreAccess" }
     Product:
       type: object
-      required: [id, name, category, defaultSectionId, unit, bundleUnit, bundleSize, minStock, minStockUnit, preferredSupplierId, stockOnHand, lowStock, active, tempMinC, tempMaxC]
+      required: [id, name, category, defaultSectionId, unit, bundleUnit, bundleSize, minStock, minStockUnit, preferredSupplierId, stockOnHand, lowStock, active, trackExpiry, minDaysLeft, warnDays, tempMinC, tempMaxC]
       properties:
         id: { type: integer }
         name: { type: string }
@@ -1419,6 +1500,9 @@ components:
         stockOnHand: { type: number }
         lowStock: { type: boolean }
         active: { type: boolean }
+        trackExpiry: { type: boolean }
+        minDaysLeft: { type: ["integer", "null"], minimum: 0, maximum: 3650 }
+        warnDays: { type: integer, minimum: 0, maximum: 365 }
         tempMinC: { type: ["number", "null"] }
         tempMaxC: { type: ["number", "null"] }
     ProductInput:
@@ -1435,6 +1519,9 @@ components:
         minStock: { type: number, minimum: 0 }
         minStockUnit: { type: string, enum: [unit, bundle] }
         preferredSupplierId: { type: ["integer", "null"] }
+        trackExpiry: { type: boolean, default: false }
+        minDaysLeft: { type: ["integer", "null"], minimum: 0, maximum: 3650 }
+        warnDays: { type: integer, minimum: 0, maximum: 365, default: 3 }
         openingStock:
           type: object
           properties:
@@ -1457,6 +1544,9 @@ components:
         minStock: { type: number, minimum: 0 }
         minStockUnit: { type: string, enum: [unit, bundle] }
         preferredSupplierId: { type: ["integer", "null"] }
+        trackExpiry: { type: boolean }
+        minDaysLeft: { type: ["integer", "null"], minimum: 0, maximum: 3650 }
+        warnDays: { type: integer, minimum: 0, maximum: 365 }
         active: { type: boolean }
         tempMinC: { type: ["number", "null"], minimum: -60, maximum: 100 }
         tempMaxC: { type: ["number", "null"], minimum: -60, maximum: 100 }
@@ -1634,10 +1724,16 @@ components:
       required: [productId, quantityDelta, reason]
       properties:
         productId: { type: integer }
+        batchId: { type: integer, minimum: 1 }
         sectionId: { type: integer }
         quantityDelta: { type: number }
         reason: { type: string, minLength: 1 }
         expiryDate: { type: ["string", "null"], format: date }
+    StockBatchExpiryInput:
+      type: object
+      required: [expiryDate]
+      properties:
+        expiryDate: { type: string, format: date }
     PurchaseOrderLine:
       type: object
       required: [productId, productName, quantity, receivedQuantity, unit, conversionFactor]
@@ -1667,6 +1763,27 @@ components:
         lines:
           type: array
           items: { $ref: "#/components/schemas/PurchaseOrderLine" }
+    PurchaseOrderHistoryEntry:
+      type: object
+      required: [id, actor, action, status, note, createdAt]
+      properties:
+        id: { type: integer }
+        actor: { type: string }
+        action: { type: string }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        note: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+    PurchaseOrderHistoryExportEntry:
+      type: object
+      required: [orderId, orderNumber, actor, action, status, note, createdAt]
+      properties:
+        orderId: { type: integer }
+        orderNumber: { type: ["string", "null"] }
+        actor: { type: string }
+        action: { type: string }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        note: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
     PurchaseOrderOutlet:
       type: object
       required: [id, name, contactEmail, contactPhone, businessAddress]
@@ -1708,10 +1825,14 @@ components:
           items: { $ref: "#/components/schemas/PurchaseOrderLineInput" }
     OrderDecisionInput:
       type: object
+      description: Rejected decisions require a non-whitespace note; approved decisions may omit it.
       required: [decision]
       properties:
         decision: { type: string, enum: [approved, rejected] }
-        note: { type: string }
+        note:
+          type: string
+          maxLength: 1000
+          description: Required and non-whitespace for rejection; optional for approval.
     ReceiptLineInput:
       type: object
       required: [productId, receivedQuantity]
@@ -1734,13 +1855,14 @@ components:
       enum: [accepted, pending_approval, rejected, returned]
     DeliveryLine:
       type: object
-      required: [productId, productName, quantity, tempC, expiryDate, sectionId, sectionName, checkStatus, issue]
+      required: [productId, productName, quantity, tempC, expiryDate, expiryLater, sectionId, sectionName, checkStatus, issue]
       properties:
         productId: { type: integer }
         productName: { type: string }
         quantity: { type: number }
         tempC: { type: ["number", "null"] }
         expiryDate: { type: ["string", "null"], format: date }
+        expiryLater: { type: boolean }
         sectionId: { type: ["integer", "null"] }
         sectionName: { type: ["string", "null"] }
         checkStatus: { type: string, enum: [pass, review] }
@@ -1770,6 +1892,7 @@ components:
         quantity: { type: number, exclusiveMinimum: 0 }
         tempC: { type: ["number", "null"], minimum: -60, maximum: 100 }
         expiryDate: { type: ["string", "null"], format: date }
+        expiryLater: { type: boolean, default: false }
         sectionId: { type: ["integer", "null"] }
     DeliveryInput:
       type: object
@@ -1802,10 +1925,12 @@ components:
         sectionName: { type: ["string", "null"] }
     StockCount:
       type: object
-      required: [id, scope, status, createdBy, createdAt, lines, workbook]
+      required: [id, scope, countDate, notes, status, createdBy, createdAt, lines, workbook]
       properties:
         id: { type: integer }
         scope: { type: string }
+        countDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        notes: { type: string }
         status: { $ref: "#/components/schemas/CountStatus" }
         createdBy: { type: string }
         createdAt: { type: string, format: date-time }
@@ -1819,7 +1944,7 @@ components:
           items: { $ref: "#/components/schemas/StockCountLine" }
         movements:
           type: array
-          description: Inventory movements recorded after this count began, included on count detail responses.
+          description: On count detail responses, movements recorded after the count began and before it completed. Completed counts exclude the reconciliation adjustments generated by that count.
           items: { $ref: "#/components/schemas/StockCountMovement" }
     StockCountWorkbook:
       type: object
@@ -1863,6 +1988,8 @@ components:
         sectionId: { type: integer }
         category: { $ref: "#/components/schemas/ProductCategory" }
         productId: { type: integer }
+        countDate: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        notes: { type: string, maxLength: 1000 }
     StockCountLineInput:
       type: object
       required: [productId, countedQuantity]
@@ -1884,6 +2011,7 @@ components:
           items: { type: integer }
         workbookObjectPath: { type: string, maxLength: 512 }
         workbookName: { type: string, minLength: 1, maxLength: 255 }
+        notes: { type: string, maxLength: 1000 }
     MovementType:
       type: string
       enum: [received, adjustment, count, delivery, transfer_in, transfer_out]
@@ -1902,6 +2030,19 @@ components:
         sectionName: { type: ["string", "null"] }
         otherOutletName: { type: ["string", "null"] }
         transferReference: { type: ["string", "null"] }
+    ActivityEntry:
+      type: object
+      required: [id, at, actor, action, group, detail, target]
+      properties:
+        id: { type: string }
+        at: { type: string, format: date-time }
+        actor: { type: string }
+        action: { type: string }
+        group: { type: string, enum: [deliveries, orders, stock, team, catalogue] }
+        detail:
+          type: string
+          description: Concise event details, including a saved decision reason for purchase-order approvals and rejections.
+        target: { type: ["string", "null"] }
     DashboardSummary:
       type: object
       required: [productCount, lowStockCount, expiringSoonCount, pendingApprovals, recentMovements]
