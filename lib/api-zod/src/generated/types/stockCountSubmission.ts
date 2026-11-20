@@ -19,4 +19,6 @@ export interface StockCountSubmission {
      * @maxLength 255
      */
   workbookName?: string;
+  /** @maxLength 1000 */
+  notes?: string;
 }

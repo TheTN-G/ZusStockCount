@@ -55,6 +55,7 @@ async function getDelivery(deliveryId: number, storeroomId: number) {
       quantity: deliveryLinesTable.quantity,
       tempC: deliveryLinesTable.tempC,
       expiryDate: deliveryLinesTable.expiryDate,
+      expiryLater: deliveryLinesTable.expiryLater,
       sectionId: deliveryLinesTable.sectionId,
       sectionName: deliveryLinesTable.sectionNameSnapshot,
       checkStatus: deliveryLinesTable.checkStatus,

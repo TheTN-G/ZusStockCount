@@ -737,6 +737,12 @@ export const ListProductsQueryParams = zod.object({
 })
 
 
+export const listProductsResponseMinDaysLeftMin = 0;
+export const listProductsResponseMinDaysLeftMax = 3650;
+
+export const listProductsResponseWarnDaysMin = 0;
+export const listProductsResponseWarnDaysMax = 365;
+
 
 
 export const ListProductsResponseItem = zod.object({
@@ -754,6 +760,9 @@ export const ListProductsResponseItem = zod.object({
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
+  "trackExpiry": zod.boolean(),
+  "minDaysLeft": zod.number().int().min(listProductsResponseMinDaysLeftMin).max(listProductsResponseMinDaysLeftMax).nullable(),
+  "warnDays": zod.number().int().min(listProductsResponseWarnDaysMin).max(listProductsResponseWarnDaysMax),
   "tempMinC": zod.number().nullable(),
   "tempMaxC": zod.number().nullable()
 })
@@ -770,6 +779,14 @@ export const ListProductsResponse = zod.array(ListProductsResponseItem)
 export const createProductBodyBundleSizeMin = 0.01;
 
 export const createProductBodyMinStockMin = 0;
+
+export const createProductBodyTrackExpiryDefault = false;
+export const createProductBodyMinDaysLeftMin = 0;
+export const createProductBodyMinDaysLeftMax = 3650;
+
+export const createProductBodyWarnDaysDefault = 3;
+export const createProductBodyWarnDaysMin = 0;
+export const createProductBodyWarnDaysMax = 365;
 
 export const createProductBodyOpeningStockQuantityMin = 0;
 
@@ -792,6 +809,9 @@ export const CreateProductBody = zod.object({
   "minStock": zod.number().min(createProductBodyMinStockMin),
   "minStockUnit": zod.enum(['unit', 'bundle']).optional(),
   "preferredSupplierId": zod.number().int().nullish(),
+  "trackExpiry": zod.boolean().default(createProductBodyTrackExpiryDefault),
+  "minDaysLeft": zod.number().int().min(createProductBodyMinDaysLeftMin).max(createProductBodyMinDaysLeftMax).nullish(),
+  "warnDays": zod.number().int().min(createProductBodyWarnDaysMin).max(createProductBodyWarnDaysMax).default(createProductBodyWarnDaysDefault),
   "openingStock": zod.object({
   "quantity": zod.number().min(createProductBodyOpeningStockQuantityMin),
   "sectionId": zod.number().int().nullish(),
@@ -801,6 +821,12 @@ export const CreateProductBody = zod.object({
   "tempMaxC": zod.number().min(createProductBodyTempMaxCMin).max(createProductBodyTempMaxCMax).nullish()
 })
 
+
+export const createProductResponseMinDaysLeftMin = 0;
+export const createProductResponseMinDaysLeftMax = 3650;
+
+export const createProductResponseWarnDaysMin = 0;
+export const createProductResponseWarnDaysMax = 365;
 
 
 
@@ -819,6 +845,9 @@ export const CreateProductResponse = zod.object({
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
+  "trackExpiry": zod.boolean(),
+  "minDaysLeft": zod.number().int().min(createProductResponseMinDaysLeftMin).max(createProductResponseMinDaysLeftMax).nullable(),
+  "warnDays": zod.number().int().min(createProductResponseWarnDaysMin).max(createProductResponseWarnDaysMax),
   "tempMinC": zod.number().nullable(),
   "tempMaxC": zod.number().nullable()
 })
@@ -831,6 +860,12 @@ export const GetProductParams = zod.object({
   "productId": zod.coerce.number().int()
 })
 
+
+export const getProductResponseMinDaysLeftMin = 0;
+export const getProductResponseMinDaysLeftMax = 3650;
+
+export const getProductResponseWarnDaysMin = 0;
+export const getProductResponseWarnDaysMax = 365;
 
 
 
@@ -849,6 +884,9 @@ export const GetProductResponse = zod.object({
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
+  "trackExpiry": zod.boolean(),
+  "minDaysLeft": zod.number().int().min(getProductResponseMinDaysLeftMin).max(getProductResponseMinDaysLeftMax).nullable(),
+  "warnDays": zod.number().int().min(getProductResponseWarnDaysMin).max(getProductResponseWarnDaysMax),
   "tempMinC": zod.number().nullable(),
   "tempMaxC": zod.number().nullable()
 })
@@ -869,6 +907,12 @@ export const updateProductBodyBundleSizeMin = 0.01;
 
 export const updateProductBodyMinStockMin = 0;
 
+export const updateProductBodyMinDaysLeftMin = 0;
+export const updateProductBodyMinDaysLeftMax = 3650;
+
+export const updateProductBodyWarnDaysMin = 0;
+export const updateProductBodyWarnDaysMax = 365;
+
 export const updateProductBodyTempMinCMin = -60;
 export const updateProductBodyTempMinCMax = 100;
 
@@ -888,11 +932,20 @@ export const UpdateProductBody = zod.object({
   "minStock": zod.number().min(updateProductBodyMinStockMin).optional(),
   "minStockUnit": zod.enum(['unit', 'bundle']).optional(),
   "preferredSupplierId": zod.number().int().nullish(),
+  "trackExpiry": zod.boolean().optional(),
+  "minDaysLeft": zod.number().int().min(updateProductBodyMinDaysLeftMin).max(updateProductBodyMinDaysLeftMax).nullish(),
+  "warnDays": zod.number().int().min(updateProductBodyWarnDaysMin).max(updateProductBodyWarnDaysMax).optional(),
   "active": zod.boolean().optional(),
   "tempMinC": zod.number().min(updateProductBodyTempMinCMin).max(updateProductBodyTempMinCMax).nullish(),
   "tempMaxC": zod.number().min(updateProductBodyTempMaxCMin).max(updateProductBodyTempMaxCMax).nullish()
 })
 
+
+export const updateProductResponseMinDaysLeftMin = 0;
+export const updateProductResponseMinDaysLeftMax = 3650;
+
+export const updateProductResponseWarnDaysMin = 0;
+export const updateProductResponseWarnDaysMax = 365;
 
 
 
@@ -911,6 +964,9 @@ export const UpdateProductResponse = zod.object({
   "stockOnHand": zod.number(),
   "lowStock": zod.boolean(),
   "active": zod.boolean(),
+  "trackExpiry": zod.boolean(),
+  "minDaysLeft": zod.number().int().min(updateProductResponseMinDaysLeftMin).max(updateProductResponseMinDaysLeftMax).nullable(),
+  "warnDays": zod.number().int().min(updateProductResponseWarnDaysMin).max(updateProductResponseWarnDaysMax),
   "tempMinC": zod.number().nullable(),
   "tempMaxC": zod.number().nullable()
 })
@@ -1340,13 +1396,41 @@ export const ListStockBatchesResponse = zod.array(ListStockBatchesResponseItem)
 
 
 /**
+ * @summary Set or correct a stock batch expiry date
+ */
+
+
+
+export const UpdateStockBatchExpiryParams = zod.object({
+  "batchId": zod.coerce.number().int().min(1)
+})
+
+export const UpdateStockBatchExpiryBody = zod.object({
+  "expiryDate": zod.coerce.date()
+})
+
+export const UpdateStockBatchExpiryResponse = zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string(),
+  "quantity": zod.number(),
+  "expiryDate": zod.coerce.date().nullish(),
+  "receivedAt": zod.coerce.date(),
+  "sectionId": zod.number().int().nullable(),
+  "sectionName": zod.string().nullable()
+})
+
+
+/**
  * @summary Add or remove stock with an audit reason
  */
 
 
 
+
 export const CreateStockAdjustmentBody = zod.object({
   "productId": zod.number().int(),
+  "batchId": zod.number().int().min(1).optional(),
   "sectionId": zod.number().int().optional(),
   "quantityDelta": zod.number(),
   "reason": zod.string().min(1),
@@ -1490,7 +1574,7 @@ export const CreateLowStockPurchaseOrderDraftsResponse = zod.array(CreateLowStoc
 
 
 /**
- * @summary Edit a purchase-order draft
+ * @summary Edit a draft or pending purchase-order request
  */
 export const UpdatePurchaseOrderDraftParams = zod.object({
   "orderId": zod.coerce.number().int()
@@ -1618,16 +1702,21 @@ export const CancelPurchaseOrderResponse = zod.object({
 
 
 /**
- * @summary Approve or reject a legacy purchase request
+ * Rejections require a non-whitespace note; approvals may omit the note.
+ * @summary Approve or reject a purchase request
  */
 export const DecidePurchaseOrderParams = zod.object({
   "orderId": zod.coerce.number().int()
 })
 
+export const decidePurchaseOrderBodyNoteMax = 1000;
+
+
+
 export const DecidePurchaseOrderBody = zod.object({
   "decision": zod.enum(['approved', 'rejected']),
-  "note": zod.string().optional()
-})
+  "note": zod.string().max(decidePurchaseOrderBodyNoteMax).optional().describe('Required and non-whitespace for rejection; optional for approval.')
+}).describe('Rejected decisions require a non-whitespace note; approved decisions may omit it.')
 
 export const DecidePurchaseOrderResponse = zod.object({
   "id": zod.number().int(),
@@ -1712,6 +1801,49 @@ export const ReceivePurchaseOrderResponse = zod.object({
 
 
 /**
+ * @summary Get an outlet purchase order's change and decision history
+ */
+export const GetPurchaseOrderHistoryParams = zod.object({
+  "orderId": zod.coerce.number().int()
+})
+
+export const GetPurchaseOrderHistoryResponseItem = zod.object({
+  "id": zod.number().int(),
+  "actor": zod.string(),
+  "action": zod.string(),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const GetPurchaseOrderHistoryResponse = zod.array(GetPurchaseOrderHistoryResponseItem)
+
+
+/**
+ * @summary Get purchase-order history for export from the selected outlet
+ */
+export const getPurchaseOrderHistoryExportQueryStartDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const getPurchaseOrderHistoryExportQueryEndDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+export const GetPurchaseOrderHistoryExportQueryParams = zod.object({
+  "startDate": zod.coerce.string().regex(getPurchaseOrderHistoryExportQueryStartDateRegExp).optional().describe('Include history events on or after this date (UTC)'),
+  "endDate": zod.coerce.string().regex(getPurchaseOrderHistoryExportQueryEndDateRegExp).optional().describe('Include history events on or before this date (UTC)'),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']).optional().describe('Include history events with this order status')
+})
+
+export const GetPurchaseOrderHistoryExportResponseItem = zod.object({
+  "orderId": zod.number().int(),
+  "orderNumber": zod.string().nullable(),
+  "actor": zod.string(),
+  "action": zod.string(),
+  "status": zod.enum(['draft', 'issued', 'pending', 'approved', 'rejected', 'partially_received', 'received', 'cancelled']),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const GetPurchaseOrderHistoryExportResponse = zod.array(GetPurchaseOrderHistoryExportResponseItem)
+
+
+/**
  * @summary List receiving records for the selected outlet
  */
 export const ListDeliveriesResponseItem = zod.object({
@@ -1731,6 +1863,7 @@ export const ListDeliveriesResponseItem = zod.object({
   "quantity": zod.number(),
   "tempC": zod.number().nullable(),
   "expiryDate": zod.coerce.date().nullable(),
+  "expiryLater": zod.boolean(),
   "sectionId": zod.number().int().nullable(),
   "sectionName": zod.string().nullable(),
   "checkStatus": zod.enum(['pass', 'review']),
@@ -1748,6 +1881,7 @@ export const createDeliveryBodyLinesItemQuantityExclusiveMin = 0;
 export const createDeliveryBodyLinesItemTempCMin = -60;
 export const createDeliveryBodyLinesItemTempCMax = 100;
 
+export const createDeliveryBodyLinesItemExpiryLaterDefault = false;
 export const createDeliveryBodyLinesMax = 100;
 
 
@@ -1760,6 +1894,7 @@ export const CreateDeliveryBody = zod.object({
   "quantity": zod.number().gt(createDeliveryBodyLinesItemQuantityExclusiveMin),
   "tempC": zod.number().min(createDeliveryBodyLinesItemTempCMin).max(createDeliveryBodyLinesItemTempCMax).nullish(),
   "expiryDate": zod.coerce.date().nullish(),
+  "expiryLater": zod.boolean().default(createDeliveryBodyLinesItemExpiryLaterDefault),
   "sectionId": zod.number().int().nullish()
 })).min(1).max(createDeliveryBodyLinesMax)
 })
@@ -1781,6 +1916,7 @@ export const CreateDeliveryResponse = zod.object({
   "quantity": zod.number(),
   "tempC": zod.number().nullable(),
   "expiryDate": zod.coerce.date().nullable(),
+  "expiryLater": zod.boolean(),
   "sectionId": zod.number().int().nullable(),
   "sectionName": zod.string().nullable(),
   "checkStatus": zod.enum(['pass', 'review']),
@@ -1822,6 +1958,7 @@ export const DecideDeliveryResponse = zod.object({
   "quantity": zod.number(),
   "tempC": zod.number().nullable(),
   "expiryDate": zod.coerce.date().nullable(),
+  "expiryLater": zod.boolean(),
   "sectionId": zod.number().int().nullable(),
   "sectionName": zod.string().nullable(),
   "checkStatus": zod.enum(['pass', 'review']),
@@ -1833,9 +1970,14 @@ export const DecideDeliveryResponse = zod.object({
 /**
  * @summary List recent and active stock counts
  */
+export const listStockCountsResponseCountDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const ListStockCountsResponseItem = zod.object({
   "id": zod.number().int(),
   "scope": zod.string(),
+  "countDate": zod.string().regex(listStockCountsResponseCountDateRegExp),
+  "notes": zod.string(),
   "status": zod.enum(['in_progress', 'completed']),
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
@@ -1866,7 +2008,7 @@ export const ListStockCountsResponseItem = zod.object({
   "reason": zod.string(),
   "actor": zod.string(),
   "occurredAt": zod.coerce.date()
-})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
+})).optional().describe('On count detail responses, movements recorded after the count began and before it completed. Completed counts exclude the reconciliation adjustments generated by that count.')
 })
 export const ListStockCountsResponse = zod.array(ListStockCountsResponseItem)
 
@@ -1875,18 +2017,28 @@ export const ListStockCountsResponse = zod.array(ListStockCountsResponseItem)
  * @summary Start an all-stock, section, category, or single-product count
  */
 
+export const createStockCountBodyCountDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const createStockCountBodyNotesMax = 1000;
+
 
 
 export const CreateStockCountBody = zod.object({
   "scope": zod.enum(['all', 'section', 'category', 'product']),
   "sectionId": zod.number().int().optional(),
   "category": zod.string().min(1).optional(),
-  "productId": zod.number().int().optional()
+  "productId": zod.number().int().optional(),
+  "countDate": zod.string().regex(createStockCountBodyCountDateRegExp).optional(),
+  "notes": zod.string().max(createStockCountBodyNotesMax).optional()
 })
+
+export const createStockCountResponseCountDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
 
 export const CreateStockCountResponse = zod.object({
   "id": zod.number().int(),
   "scope": zod.string(),
+  "countDate": zod.string().regex(createStockCountResponseCountDateRegExp),
+  "notes": zod.string(),
   "status": zod.enum(['in_progress', 'completed']),
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
@@ -1917,7 +2069,7 @@ export const CreateStockCountResponse = zod.object({
   "reason": zod.string(),
   "actor": zod.string(),
   "occurredAt": zod.coerce.date()
-})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
+})).optional().describe('On count detail responses, movements recorded after the count began and before it completed. Completed counts exclude the reconciliation adjustments generated by that count.')
 })
 
 
@@ -1928,9 +2080,14 @@ export const GetStockCountParams = zod.object({
   "countId": zod.coerce.number().int()
 })
 
+export const getStockCountResponseCountDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetStockCountResponse = zod.object({
   "id": zod.number().int(),
   "scope": zod.string(),
+  "countDate": zod.string().regex(getStockCountResponseCountDateRegExp),
+  "notes": zod.string(),
   "status": zod.enum(['in_progress', 'completed']),
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
@@ -1961,7 +2118,7 @@ export const GetStockCountResponse = zod.object({
   "reason": zod.string(),
   "actor": zod.string(),
   "occurredAt": zod.coerce.date()
-})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
+})).optional().describe('On count detail responses, movements recorded after the count began and before it completed. Completed counts exclude the reconciliation adjustments generated by that count.')
 })
 
 
@@ -1979,6 +2136,8 @@ export const submitStockCountBodyWorkbookObjectPathMax = 512;
 
 export const submitStockCountBodyWorkbookNameMax = 255;
 
+export const submitStockCountBodyNotesMax = 1000;
+
 
 
 export const SubmitStockCountBody = zod.object({
@@ -1989,12 +2148,18 @@ export const SubmitStockCountBody = zod.object({
 })).min(1),
   "acknowledgedMovementIds": zod.array(zod.number().int()).describe('IDs of post-start movements shown to and acknowledged by the reviewer.'),
   "workbookObjectPath": zod.string().max(submitStockCountBodyWorkbookObjectPathMax).optional(),
-  "workbookName": zod.string().min(1).max(submitStockCountBodyWorkbookNameMax).optional()
+  "workbookName": zod.string().min(1).max(submitStockCountBodyWorkbookNameMax).optional(),
+  "notes": zod.string().max(submitStockCountBodyNotesMax).optional()
 })
+
+export const submitStockCountResponseCountDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
 
 export const SubmitStockCountResponse = zod.object({
   "id": zod.number().int(),
   "scope": zod.string(),
+  "countDate": zod.string().regex(submitStockCountResponseCountDateRegExp),
+  "notes": zod.string(),
   "status": zod.enum(['in_progress', 'completed']),
   "createdBy": zod.string(),
   "createdAt": zod.coerce.date(),
@@ -2025,7 +2190,7 @@ export const SubmitStockCountResponse = zod.object({
   "reason": zod.string(),
   "actor": zod.string(),
   "occurredAt": zod.coerce.date()
-})).optional().describe('Inventory movements recorded after this count began, included on count detail responses.')
+})).optional().describe('On count detail responses, movements recorded after the count began and before it completed. Completed counts exclude the reconciliation adjustments generated by that count.')
 })
 
 
@@ -2096,6 +2261,21 @@ export const ListStockMovementsResponseItem = zod.object({
   "transferReference": zod.string().nullable()
 })
 export const ListStockMovementsResponse = zod.array(ListStockMovementsResponseItem)
+
+
+/**
+ * @summary List the selected outlet's activity timeline
+ */
+export const ListActivityResponseItem = zod.object({
+  "id": zod.string(),
+  "at": zod.coerce.date(),
+  "actor": zod.string(),
+  "action": zod.string(),
+  "group": zod.enum(['deliveries', 'orders', 'stock', 'team', 'catalogue']),
+  "detail": zod.string().describe('Concise event details, including a saved decision reason for purchase-order approvals and rejections.'),
+  "target": zod.string().nullable()
+})
+export const ListActivityResponse = zod.array(ListActivityResponseItem)
 
 
 /**

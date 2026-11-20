@@ -58,6 +58,10 @@
 @keyframes pageIn { from { opacity:0; transform:translateY(7px) } to { opacity:1; transform:translateY(0) } }
 .cl-formFieldInput::placeholder { color:#72809a; opacity:1; }
 
+@media (max-width: 1023px) {
+  html[data-mobile-chrome-hidden="true"] .app-mobile-chrome { display: none !important; }
+}
+
 /* Bring legacy green and gold brand utilities into the navy, cream, and tan palette. */
 @layer utilities {
   :is([class~="bg-[#155d4d]"], [class~="bg-[#104c3f]"], [class~="bg-[#147158]"], [class~="bg-[#174c40]"], [class~="bg-[#1b6a56]"], [class~="bg-[#1c755d]"]) {
@@ -115,8 +119,8 @@
 
   body.print-mode [data-print-target="true"] {
     display: block !important;
-    position: absolute !important;
-    inset: 0 auto auto 0 !important;
+    position: static !important;
+    inset: auto !important;
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
@@ -131,6 +135,31 @@
   body.print-mode [data-print-target="true"] table {
     width: 100%;
     border-collapse: collapse;
+    page-break-inside: auto;
+  }
+
+  body.print-mode [data-print-target="true"] thead {
+    display: table-header-group;
+  }
+
+  body.print-mode [data-print-target="true"] tfoot {
+    display: table-footer-group;
+  }
+
+  body.print-mode [data-print-target="true"] tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body.print-mode [data-print-target="true"] th,
+  body.print-mode [data-print-target="true"] td {
+    vertical-align: top;
+  }
+
+  body.print-mode [data-print-target="true"] h1,
+  body.print-mode [data-print-target="true"] h2 {
+    break-after: avoid;
+    page-break-after: avoid;
   }
 
   body.print-mode .no-print {

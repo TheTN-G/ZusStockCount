@@ -49,6 +49,9 @@ export async function listProducts(
       minStock: productsTable.minStock,
       minStockUnit: productsTable.minStockUnit,
       preferredSupplierId: productsTable.preferredSupplierId,
+      trackExpiry: productsTable.trackExpiry,
+      minDaysLeft: productsTable.minDaysLeft,
+      warnDays: productsTable.warnDays,
       active: productsTable.active,
       stockOnHand: sql<number>`coalesce(sum(${stockBatchesTable.quantity}), 0)::float`,
     })

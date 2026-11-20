@@ -115,6 +115,9 @@ async function createProduct(userId: string, name: string, storeroomId?: number)
     },
   });
   assert.equal(response.status, 201, JSON.stringify(data));
+  assert.equal(data.trackExpiry, false);
+  assert.equal(data.minDaysLeft, null);
+  assert.equal(data.warnDays, 3);
   fixtureProductIds.push(data.id);
   return data;
 }
@@ -270,13 +273,25 @@ after(async () => {
       .delete(purchaseOrderLinesTable)
       .where(inArray(purchaseOrderLinesTable.orderId, fixtureOrderIds));
   }
-  if (fixtureProductIds.length) {
+  const outletProducts = fixtureStoreroomIds.length
+    ? await db
+        .select({ id: productsTable.id })
+        .from(productsTable)
+        .where(inArray(productsTable.storeroomId, fixtureStoreroomIds))
+    : [];
+  const cleanupProductIds = [
+    ...new Set([
+      ...fixtureProductIds,
+      ...outletProducts.map(({ id }) => id),
+    ]),
+  ];
+  if (cleanupProductIds.length) {
     await db
       .delete(stockBatchesTable)
-      .where(inArray(stockBatchesTable.productId, fixtureProductIds));
+      .where(inArray(stockBatchesTable.productId, cleanupProductIds));
     await db
       .delete(stockMovementsTable)
-      .where(inArray(stockMovementsTable.productId, fixtureProductIds));
+      .where(inArray(stockMovementsTable.productId, cleanupProductIds));
   }
   if (fixtureCountIds.length) {
     await db.delete(stockCountsTable).where(inArray(stockCountsTable.id, fixtureCountIds));
@@ -286,8 +301,10 @@ after(async () => {
       .delete(purchaseOrdersTable)
       .where(inArray(purchaseOrdersTable.id, fixtureOrderIds));
   }
-  if (fixtureProductIds.length) {
-    await db.delete(productsTable).where(inArray(productsTable.id, fixtureProductIds));
+  if (cleanupProductIds.length) {
+    await db
+      .delete(productsTable)
+      .where(inArray(productsTable.id, cleanupProductIds));
   }
   if (fixtureStoreroomIds.length) {
     await db
