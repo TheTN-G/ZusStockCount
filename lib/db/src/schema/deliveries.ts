@@ -66,6 +66,7 @@ export const deliveryLinesTable = pgTable(
       .notNull(),
     tempC: numeric("temp_c", { precision: 6, scale: 2, mode: "number" }),
     expiryDate: date("expiry_date", { mode: "string" }),
+    expiryLater: boolean("expiry_later").notNull().default(false),
     checkStatus: text("check_status").notNull(),
     issue: text("issue"),
   },
