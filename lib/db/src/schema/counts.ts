@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import {
+  date,
   index,
   integer,
   numeric,
@@ -19,8 +21,13 @@ export const stockCountsTable = pgTable(
     id: serial("id").primaryKey(),
     storeroomId: integer("storeroom_id").references(() => storeroomsTable.id),
     scope: text("scope").notNull(),
+    countDate: date("count_date", { mode: "string" })
+      .notNull()
+      .default(sql`CURRENT_DATE`),
+    notes: text("notes").notNull().default(""),
     status: text("status").notNull().default("in_progress"),
     createdBy: text("created_by").notNull(),
+    completedBy: text("completed_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -34,6 +41,9 @@ export const stockCountsTable = pgTable(
   (table) => ({
     statusIdx: index("stock_counts_status_idx").on(table.status),
     createdIdx: index("stock_counts_created_idx").on(table.createdAt),
+    workbookPathIdx: index("stock_counts_workbook_object_path_idx").on(
+      table.workbookObjectPath,
+    ),
   }),
 );
 
