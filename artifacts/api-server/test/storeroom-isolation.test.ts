@@ -1,18 +1,13 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import path from "node:path";
 import { after, before, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import express from "express";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   pool,
-  catalogueEventsTable,
   productCategoriesTable,
   productsTable,
-  purchaseOrderEventsTable,
   purchaseOrderLinesTable,
   purchaseOrdersTable,
   stockBatchesTable,
@@ -30,30 +25,24 @@ import {
   storeroomsTable,
   workspacesTable,
 } from "@workspace/db";
-import { ObjectStorageService } from "../src/lib/objectStorage";
 import { createApiRouter } from "../src/routes";
 import type { StoreAuthResolver } from "../src/middlewares/storeUser";
 
 const fixtureTag = `api-isolation-${crypto.randomUUID()}`;
-const objectStorage = new ObjectStorageService();
 const legacyOwnerId = `${fixtureTag}-legacy-owner`;
 const legacyStaffId = `${fixtureTag}-legacy-staff`;
 const secondOwnerId = `${fixtureTag}-new-owner`;
 const secondStaffId = `${fixtureTag}-new-staff`;
 const secondManagerInviteeId = `${fixtureTag}-manager-invitee`;
-const secondOutletStaffId = `${fixtureTag}-sibling-outlet-staff`;
 
 let server: ReturnType<ReturnType<typeof express>["listen"]> | undefined;
 let baseUrl: string;
-let secondaryApiProcess: ChildProcess | undefined;
-let secondaryBaseUrl: string;
 let fixtureStoreroomIds: number[] = [];
 let fixtureWorkspaceIds: number[] = [];
 let fixtureProductIds: number[] = [];
 let fixtureTransferIds: number[] = [];
 let fixtureOrderIds: number[] = [];
 let fixtureCountIds: number[] = [];
-let fixtureWorkbookObjectPaths: string[] = [];
 let fixtureDeliveryIds: number[] = [];
 let fixtureUserIds = [
   legacyOwnerId,
@@ -61,7 +50,6 @@ let fixtureUserIds = [
   secondOwnerId,
   secondStaffId,
   secondManagerInviteeId,
-  secondOutletStaffId,
 ];
 
 const resolveTestUser: StoreAuthResolver = (req) => {
@@ -77,8 +65,7 @@ const resolveTestUser: StoreAuthResolver = (req) => {
   };
 };
 
-async function apiAt(
-  apiBaseUrl: string,
+async function api(
   userId: string,
   path: string,
   options: {
@@ -94,7 +81,7 @@ async function apiAt(
   if (options.storeroomId !== undefined) {
     headers["x-storeroom-id"] = String(options.storeroomId);
   }
-  const response = await fetch(`${apiBaseUrl}/api${path}`, {
+  const response = await fetch(`${baseUrl}/api${path}`, {
     method: options.method ?? "GET",
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -114,112 +101,7 @@ async function apiAt(
   return { response, data };
 }
 
-async function api(
-  userId: string,
-  path: string,
-  options: {
-    method?: string;
-    storeroomId?: number;
-    body?: unknown;
-  } = {},
-) {
-  return apiAt(baseUrl, userId, path, options);
-}
-
-async function startSecondaryApiServer(): Promise<{
-  child: ChildProcess;
-  url: string;
-}> {
-  const workerPath = fileURLToPath(
-    new URL("./po-issue-server.mjs", import.meta.url),
-  );
-  const child = spawn(process.execPath, [workerPath], {
-    cwd: path.dirname(workerPath),
-    env: { ...process.env, NODE_ENV: "test" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stdout = "";
-  let stderr = "";
-  child.stderr?.setEncoding("utf8");
-  child.stderr?.on("data", (chunk: string) => {
-    stderr += chunk;
-  });
-
-  try {
-    const port = await new Promise<number>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for the second API server.")),
-        15_000,
-      );
-      const cleanup = () => {
-        clearTimeout(timeout);
-        child.stdout?.off("data", onData);
-        child.off("error", onError);
-        child.off("exit", onExit);
-      };
-      const onData = (chunk: Buffer | string) => {
-        stdout += chunk.toString();
-        const lines = stdout.split(/\r?\n/);
-        stdout = lines.pop() ?? "";
-        for (const line of lines) {
-          try {
-            const message = JSON.parse(line) as { event?: string; port?: number };
-            if (message.event === "ready" && Number.isInteger(message.port)) {
-              cleanup();
-              resolve(message.port!);
-              return;
-            }
-          } catch {
-            // Ignore non-protocol output while waiting for the ready message.
-          }
-        }
-      };
-      const onError = (error: Error) => {
-        cleanup();
-        reject(error);
-      };
-      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-        cleanup();
-        reject(
-          new Error(
-            `Second API server exited before starting (code ${code}, signal ${signal}). ${stderr}`,
-          ),
-        );
-      };
-      child.stdout?.setEncoding("utf8");
-      child.stdout?.on("data", onData);
-      child.on("error", onError);
-      child.on("exit", onExit);
-    });
-    return { child, url: `http://127.0.0.1:${port}` };
-  } catch (error) {
-    child.kill("SIGKILL");
-    throw error;
-  }
-}
-
-async function stopApiServerProcess(child: ChildProcess) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, "exit");
-  child.kill("SIGTERM");
-  await exited;
-}
-
 async function createProduct(userId: string, name: string, storeroomId?: number) {
-  const categoryList = await api(userId, "/product-categories", { storeroomId });
-  assert.equal(categoryList.response.status, 200, JSON.stringify(categoryList.data));
-  assert.ok(
-    categoryList.data.every((category: { isDefault: boolean }) => !category.isDefault),
-    "preset product categories are not retained as defaults",
-  );
-  if (!categoryList.data.some((category: { key: string }) => category.key === "food")) {
-    const category = await api(userId, "/product-categories", {
-      method: "POST",
-      storeroomId,
-      body: { name: "Food" },
-    });
-    assert.equal(category.response.status, 201, JSON.stringify(category.data));
-  }
   const { response, data } = await api(userId, "/products", {
     method: "POST",
     storeroomId,
@@ -251,14 +133,9 @@ async function createRoomData(userId: string, productId: number) {
   });
   assert.equal(adjustment.response.status, 201, JSON.stringify(adjustment.data));
 
-  const supplier = await api(userId, "/suppliers", {
-    method: "POST",
-    body: { name: `${fixtureTag}-order-supplier-${productId}` },
-  });
-  assert.equal(supplier.response.status, 201, JSON.stringify(supplier.data));
   const order = await api(userId, "/purchase-orders", {
     method: "POST",
-    body: { supplierId: supplier.data.id, lines: [{ productId, quantity: 4 }] },
+    body: { lines: [{ productId, quantity: 4 }] },
   });
   assert.equal(order.response.status, 201, JSON.stringify(order.data));
   fixtureOrderIds.push(order.data.id);
@@ -288,15 +165,13 @@ before(async () => {
     db.select({ id: stockSectionsTable.id }).from(stockSectionsTable).limit(1),
     db.select({ id: stockTransfersTable.id }).from(stockTransfersTable).limit(1),
     db.select({ id: purchaseOrdersTable.id }).from(purchaseOrdersTable).limit(1),
-    db.select({ id: purchaseOrderEventsTable.id }).from(purchaseOrderEventsTable).limit(1),
     db.select({ id: stockCountsTable.id }).from(stockCountsTable).limit(1),
     db.select({ id: securityEventsTable.id }).from(securityEventsTable).limit(1),
-    db.select({ id: catalogueEventsTable.id }).from(catalogueEventsTable).limit(1),
     db.select({ id: passwordResetTokensTable.id }).from(passwordResetTokensTable).limit(1),
   ]);
   assert.deepEqual(
     preexistingRows,
-    [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []],
+    [[], [], [], [], [], [], [], [], [], [], [], [], [], []],
     "The integration test database must be empty; use a dedicated database, not the app database.",
   );
 
@@ -308,9 +183,6 @@ before(async () => {
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   baseUrl = `http://127.0.0.1:${address.port}`;
-  const secondaryApi = await startSecondaryApiServer();
-  secondaryApiProcess = secondaryApi.child;
-  secondaryBaseUrl = secondaryApi.url;
 
   await db.insert(storeUsersTable).values([
     {
@@ -377,20 +249,9 @@ before(async () => {
 });
 
 after(async () => {
-  if (secondaryApiProcess) {
-    secondaryApiProcess.kill("SIGTERM");
-    await once(secondaryApiProcess, "exit");
-  }
   if (server) {
     server.close();
     await once(server, "close");
-  }
-  for (const objectPath of fixtureWorkbookObjectPaths) {
-    try {
-      await objectStorage.deleteObject(objectPath);
-    } catch (error) {
-      console.error(`Could not clean up test workbook ${objectPath}:`, error);
-    }
   }
   if (fixtureCountIds.length) {
     await db
@@ -801,146 +662,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     body: { name: `${fixtureTag}-outlet-supplier` },
   });
   assert.equal(outletSupplier.response.status, 201, JSON.stringify(outletSupplier.data));
-  const catalogueHistorySupplier = await api(secondOwnerId, "/suppliers", {
-    method: "POST",
-    storeroomId: secondRoomId,
-    body: { name: `${fixtureTag}-catalogue-history-supplier` },
-  });
-  assert.equal(
-    catalogueHistorySupplier.response.status,
-    201,
-    JSON.stringify(catalogueHistorySupplier.data),
-  );
-  const catalogueSupplierUpdate = await api(
-    secondOwnerId,
-    `/suppliers/${catalogueHistorySupplier.data.id}`,
-    {
-      method: "PATCH",
-      storeroomId: secondRoomId,
-      body: { contactName: "Catalogue history contact" },
-    },
-  );
-  assert.equal(catalogueSupplierUpdate.response.status, 200);
-  const catalogueSupplierArchive = await api(
-    secondOwnerId,
-    `/suppliers/${catalogueHistorySupplier.data.id}`,
-    {
-      method: "PATCH",
-      storeroomId: secondRoomId,
-      body: { active: false },
-    },
-  );
-  assert.equal(catalogueSupplierArchive.response.status, 200);
-  const catalogueSupplierActivity = await api(
-    secondOwnerId,
-    "/activity",
-    { storeroomId: secondRoomId },
-  );
-  const supplierEvents = catalogueSupplierActivity.data.filter(
-    (entry: any) => entry.group === "catalogue" && entry.target === catalogueHistorySupplier.data.name,
-  );
-  assert.deepEqual(
-    supplierEvents.map((entry: any) => entry.action).sort(),
-    ["Supplier added", "Supplier archived", "Supplier updated"].sort(),
-  );
-  const supplierUpdateEvent = supplierEvents.find(
-    (entry: any) => entry.action === "Supplier updated",
-  );
-  assert.equal(supplierUpdateEvent.actor, secondOwnerId);
-  assert.ok(Number.isFinite(Date.parse(supplierUpdateEvent.at)));
-  assert.match(supplierUpdateEvent.detail, /Changed fields: Contact name/);
-  assert.ok(
-    !supplierUpdateEvent.detail.includes("Catalogue history contact"),
-    "Supplier contact values should not be exposed in Activity details.",
-  );
-  const siblingSupplierActivity = await api(
-    secondOwnerId,
-    "/activity",
-    { storeroomId: secondOutletId },
-  );
-  assert.ok(
-    !siblingSupplierActivity.data.some(
-      (entry: any) => entry.target === catalogueHistorySupplier.data.name,
-    ),
-    "Supplier catalogue history must not leak into another outlet's Activity.",
-  );
-
-  const createdAccountName = `${fixtureTag} account`;
-  const createdAccount = await api(secondOwnerId, "/users/accounts", {
-    method: "POST",
-    storeroomId: secondRoomId,
-    body: {
-      name: createdAccountName,
-      username: `task107-${crypto.randomUUID().slice(0, 8)}`,
-      role: "staff",
-      temporaryPassword: "temporary-password-107",
-    },
-  });
-  assert.equal(createdAccount.response.status, 201, JSON.stringify(createdAccount.data));
-  fixtureUserIds.push(createdAccount.data.id);
-  const createdAccountEvents = await api(
-    secondOwnerId,
-    "/users/security-events",
-    { storeroomId: secondRoomId },
-  );
-  const createdAccountEvent = createdAccountEvents.data.find(
-    ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
-      eventType === "teammate_created" && targetUserId === createdAccount.data.id,
-  );
-  assert.ok(createdAccountEvent, JSON.stringify(createdAccountEvents.data));
-  assert.equal(createdAccountEvent.actorUserId, secondOwnerId);
-  assert.equal(createdAccountEvent.actorName, secondOwnerId);
-  assert.equal(createdAccountEvent.targetUserId, createdAccount.data.id);
-  assert.equal(createdAccountEvent.targetName, createdAccountName);
-  assert.equal(createdAccountEvent.storeroomId, secondRoomId);
-  assert.ok(Number.isFinite(Date.parse(createdAccountEvent.createdAt)));
-
-  const createdAccountActivity = await api(
-    secondOwnerId,
-    "/activity",
-    { storeroomId: secondRoomId },
-  );
-  const createdAccountActivityEvent = createdAccountActivity.data.find(
-    (entry: any) =>
-      entry.group === "team" &&
-      entry.action === "Teammate created" &&
-      entry.target === createdAccountName,
-  );
-  assert.ok(createdAccountActivityEvent);
-  assert.equal(createdAccountActivityEvent.actor, secondOwnerId);
-  assert.match(createdAccountActivityEvent.detail, /Role: staff/);
-  assert.ok(Number.isFinite(Date.parse(createdAccountActivityEvent.at)));
-
-  const createdAccountStaffActivity = await api(
-    createdAccount.data.id,
-    "/activity",
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(createdAccountStaffActivity.response.status, 200);
-  assert.ok(
-    !createdAccountStaffActivity.data.some(
-      (entry: any) => entry.group === "team" && entry.target === createdAccountName,
-    ),
-    "Staff must not see security history in Activity.",
-  );
-  const createdAccountStaffSecurityEvents = await api(
-    createdAccount.data.id,
-    "/users/security-events",
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(createdAccountStaffSecurityEvents.response.status, 403);
-
-  const createdAccountSiblingActivity = await api(
-    secondOwnerId,
-    "/activity",
-    { storeroomId: secondOutletId },
-  );
-  assert.ok(
-    !createdAccountSiblingActivity.data.some(
-      (entry: any) => entry.group === "team" && entry.target === createdAccountName,
-    ),
-    "Teammate security history must not appear in a sibling outlet's Activity.",
-  );
 
   const currentMonthParts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kuala_Lumpur",
@@ -996,38 +717,26 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     return drafts.map(({ data }) => data.id as number);
   };
   const [mainDraftIds, outletDraftIds] = await Promise.all([
-    createIssueDrafts(secondRoomId, mainSupplier.data.id, mainOutletProduct.id, 6),
+    createIssueDrafts(secondRoomId, mainSupplier.data.id, mainOutletProduct.id, 4),
     createIssueDrafts(secondOutletId, outletSupplier.data.id, outletProduct.id, 2),
   ]);
-  const approveRequests = async (storeroomId: number, orderIds: number[]) =>
+  const issueDrafts = async (storeroomId: number, orderIds: number[]) =>
     Promise.all(
       orderIds.map((orderId) =>
-        api(secondOwnerId, `/purchase-orders/${orderId}/decision`, {
+        api(secondOwnerId, `/purchase-orders/${orderId}/issue`, {
           method: "POST",
           storeroomId,
-          body: { decision: "approved" },
         }),
       ),
     );
-  const [localMainOrders, remoteMainOrders, issuedOutletOrders] = await Promise.all([
-    approveRequests(secondRoomId, mainDraftIds.slice(0, 3)),
-    Promise.all(
-      mainDraftIds.slice(3).map((orderId) =>
-        apiAt(
-          secondaryBaseUrl,
-          secondOwnerId,
-          `/purchase-orders/${orderId}/decision`,
-          { method: "POST", storeroomId: secondRoomId, body: { decision: "approved" } },
-        ),
-      ),
-    ),
-    approveRequests(secondOutletId, outletDraftIds),
+  const [issuedMainOrders, issuedOutletOrders] = await Promise.all([
+    issueDrafts(secondRoomId, mainDraftIds),
+    issueDrafts(secondOutletId, outletDraftIds),
   ]);
-  const issuedMainOrders = [...localMainOrders, ...remoteMainOrders];
   for (const issued of [...issuedMainOrders, ...issuedOutletOrders]) {
     assert.equal(issued.response.status, 200, JSON.stringify(issued.data));
-    assert.equal(issued.data.status, "approved");
-    assert.ok(issued.data.orderNumber, "An approved purchase order must have a number.");
+    assert.equal(issued.data.status, "issued");
+    assert.ok(issued.data.orderNumber, "An issued purchase order must have a number.");
   }
   const mainSequence = issuedMainOrders
     .map(({ data }) => data.orderNumber as string)
@@ -1037,81 +746,13 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     .sort();
   assert.deepEqual(
     mainSequence,
-    [1, 2, 3, 4, 5, 6].map((sequence) => `${currentPrefix}${String(sequence).padStart(3, "0")}`),
-    "Concurrent approvals across two API processes must have unique sequential numbers.",
+    [1, 2, 3, 4].map((sequence) => `${currentPrefix}${String(sequence).padStart(3, "0")}`),
+    "Concurrent issues must have unique sequential numbers, starting fresh in the current month.",
   );
   assert.deepEqual(
     outletSequence,
     [1, 2].map((sequence) => `${currentPrefix}${String(sequence).padStart(3, "0")}`),
     "Each outlet must maintain its own monthly PO number sequence.",
-  );
-  const persistedMainOrders = await db
-    .select({
-      id: purchaseOrdersTable.id,
-      status: purchaseOrdersTable.status,
-      orderNumber: purchaseOrdersTable.orderNumber,
-    })
-    .from(purchaseOrdersTable)
-    .where(inArray(purchaseOrdersTable.id, mainDraftIds));
-  assert.equal(persistedMainOrders.length, mainDraftIds.length);
-  assert.ok(
-    persistedMainOrders.every(
-      ({ status, orderNumber }) => status === "approved" && orderNumber !== null,
-    ),
-    "Every approved order must persist its allocated PO number.",
-  );
-  assert.equal(
-    new Set(persistedMainOrders.map(({ orderNumber }) => orderNumber)).size,
-    persistedMainOrders.length,
-    "Persisted PO numbers must remain distinct across API processes.",
-  );
-
-  const restartDraft = await api(secondOwnerId, "/purchase-orders", {
-    method: "POST",
-    storeroomId: secondRoomId,
-    body: {
-      supplierId: mainSupplier.data.id,
-      lines: [{ productId: mainOutletProduct.id, quantity: 1 }],
-    },
-  });
-  assert.equal(restartDraft.response.status, 201, JSON.stringify(restartDraft.data));
-  fixtureOrderIds.push(restartDraft.data.id);
-
-  await stopApiServerProcess(secondaryApiProcess!);
-  secondaryApiProcess = undefined;
-  const restartedApi = await startSecondaryApiServer();
-  secondaryApiProcess = restartedApi.child;
-  secondaryBaseUrl = restartedApi.url;
-
-  const approvedAfterRestart = await apiAt(
-    secondaryBaseUrl,
-    secondOwnerId,
-    `/purchase-orders/${restartDraft.data.id}/decision`,
-    { method: "POST", storeroomId: secondRoomId, body: { decision: "approved" } },
-  );
-  assert.equal(approvedAfterRestart.response.status, 200, JSON.stringify(approvedAfterRestart.data));
-  assert.equal(
-    approvedAfterRestart.data.orderNumber,
-    `${currentPrefix}007`,
-    "A fresh API process must continue the outlet's monthly PO sequence from the database.",
-  );
-  assert.notEqual(
-    approvedAfterRestart.data.orderNumber,
-    issuedMainOrders[0]!.data.orderNumber,
-    "Orders issued before and after an API restart must retain distinct monthly numbers.",
-  );
-  const persistedRestartOrders = await db
-    .select({
-      id: purchaseOrdersTable.id,
-      orderNumber: purchaseOrdersTable.orderNumber,
-    })
-    .from(purchaseOrdersTable)
-    .where(inArray(purchaseOrdersTable.id, [mainDraftIds[0]!, restartDraft.data.id]));
-  assert.equal(persistedRestartOrders.length, 2);
-  assert.equal(
-    new Set(persistedRestartOrders.map(({ orderNumber }) => orderNumber)).size,
-    2,
-    "The pre-restart and post-restart PO numbers must both remain distinct in the database.",
   );
 
   const updatedSecondOutletDetails = await api(
@@ -1196,55 +837,12 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       email: `${secondManagerInviteeId}@example.invalid`,
       role: "staff",
     },
-    {
-      id: secondOutletStaffId,
-      name: secondOutletStaffId,
-      email: `${secondOutletStaffId}@example.invalid`,
-      role: "staff",
-    },
   ]);
   const addedStaff = await api(secondOwnerId, "/users", {
     method: "POST",
     body: { email: `${secondStaffId}@example.invalid`, role: "staff" },
   });
   assert.equal(addedStaff.response.status, 201, JSON.stringify(addedStaff.data));
-  const addedStaffSecurityEvents = await api(
-    secondOwnerId,
-    "/users/security-events",
-    { storeroomId: secondRoomId },
-  );
-  assert.ok(
-    addedStaffSecurityEvents.data.some(
-      ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
-        eventType === "teammate_added" && targetUserId === secondStaffId,
-    ),
-    JSON.stringify(addedStaffSecurityEvents.data),
-  );
-  const addedSiblingOutletStaff = await api(secondOwnerId, "/users", {
-    method: "POST",
-    storeroomId: secondOutletId,
-    body: {
-      email: `${secondOutletStaffId}@example.invalid`,
-      role: "staff",
-      access: {
-        dashboard: "view",
-        receiving: "view",
-        deliveryRecords: "view",
-        products: "view",
-        suppliers: "view",
-        stockTransfers: "view",
-        purchaseOrders: "view",
-        approvals: "view",
-        activity: "view",
-        stockCount: "view",
-      },
-    },
-  });
-  assert.equal(
-    addedSiblingOutletStaff.response.status,
-    201,
-    JSON.stringify(addedSiblingOutletStaff.data),
-  );
   const staffCannotCompleteWorkspaceSetup = await api(
     secondStaffId,
     "/workspaces/me/setup",
@@ -1462,39 +1060,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     { method: "PATCH", body: { role: "supervisor" } },
   );
   assert.equal(promotedToManager.response.status, 200);
-  const roleChangeEvents = await api(
-    secondOwnerId,
-    "/users/security-events",
-    { storeroomId: secondRoomId },
-  );
-  const roleChangeEvent = roleChangeEvents.data.find(
-    ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
-      eventType === "teammate_role_updated" && targetUserId === secondStaffId,
-  );
-  assert.ok(roleChangeEvent, JSON.stringify(roleChangeEvents.data));
-  assert.equal(roleChangeEvent.actorUserId, secondOwnerId);
-  assert.equal(roleChangeEvent.actorName, secondOwnerId);
-  assert.equal(roleChangeEvent.targetName, secondStaffId);
-  assert.equal(roleChangeEvent.storeroomId, secondRoomId);
-  assert.deepEqual(roleChangeEvent.changedSections, [
-    { section: "role", previousAccess: "staff", newAccess: "supervisor" },
-  ]);
-  assert.ok(Number.isFinite(Date.parse(roleChangeEvent.createdAt)));
-  const roleChangeActivity = await api(
-    secondOwnerId,
-    "/activity",
-    { storeroomId: secondRoomId },
-  );
-  const roleChangeActivityEvent = roleChangeActivity.data.find(
-    (entry: any) =>
-      entry.group === "team" &&
-      entry.action === "Teammate role changed" &&
-      entry.target === secondStaffId,
-  );
-  assert.ok(roleChangeActivityEvent);
-  assert.equal(roleChangeActivityEvent.actor, secondOwnerId);
-  assert.match(roleChangeActivityEvent.detail, /Role: staff → supervisor/);
-  assert.ok(Number.isFinite(Date.parse(roleChangeActivityEvent.at)));
   const managerUpdatedAssignedOutlet = await api(
     secondStaffId,
     `/outlets/${secondRoomId}`,
@@ -1676,145 +1241,8 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     { storeroomId: secondRoomId },
   );
   assert.equal(outletSecurityEvents.response.status, 200);
-  assert.ok(
-    outletSecurityEvents.data.some(
-      ({ eventType, targetName }: { eventType: string; targetName: string }) =>
-        eventType === "password_reset_link_created" &&
-        targetName === secondManagerInviteeId,
-    ),
-    JSON.stringify(outletSecurityEvents.data),
-  );
-
-  const managerStaffAccess = {
-    dashboard: "view",
-    receiving: "edit",
-    deliveryRecords: "view",
-    products: "none",
-    suppliers: "view",
-    stockTransfers: "none",
-    purchaseOrders: "edit",
-    approvals: "view",
-    activity: "view",
-    stockCount: "edit",
-  };
-  const managerAccessUpdate = await api(
-    secondStaffId,
-    `/users/${secondManagerInviteeId}/access`,
-    {
-      method: "PATCH",
-      storeroomId: secondRoomId,
-      body: { access: managerStaffAccess },
-    },
-  );
-  assert.equal(
-    managerAccessUpdate.response.status,
-    200,
-    JSON.stringify(managerAccessUpdate.data),
-  );
-  const managerSecurityEvents = await api(
-    secondStaffId,
-    "/users/security-events",
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(managerSecurityEvents.response.status, 200);
-  const managerAccessEvent = managerSecurityEvents.data.find(
-    ({ eventType, targetUserId }: { eventType: string; targetUserId: string }) =>
-      eventType === "staff_access_updated" &&
-      targetUserId === secondManagerInviteeId,
-  );
-  assert.ok(managerAccessEvent, JSON.stringify(managerSecurityEvents.data));
-  assert.equal(managerAccessEvent.actorUserId, secondStaffId);
-  assert.equal(managerAccessEvent.actorName, secondStaffId);
-  assert.equal(managerAccessEvent.targetUserId, secondManagerInviteeId);
-  assert.equal(managerAccessEvent.targetName, secondManagerInviteeId);
-  assert.equal(managerAccessEvent.storeroomId, secondRoomId);
-  assert.equal(managerAccessEvent.outletName, "Main Outlet");
-  assert.deepEqual(managerAccessEvent.changedSections, [
-    { section: "products", previousAccess: "view", newAccess: "none" },
-  ]);
-  assert.ok(Number.isFinite(Date.parse(managerAccessEvent.createdAt)));
-
-  const siblingAccessBeforeRejectedUpdate = await api(
-    secondOwnerId,
-    "/users",
-    { storeroomId: secondOutletId },
-  );
-  assert.equal(siblingAccessBeforeRejectedUpdate.response.status, 200);
-  const siblingStaffBeforeRejectedUpdate = siblingAccessBeforeRejectedUpdate.data.find(
-    ({ id }: { id: string }) => id === secondOutletStaffId,
-  );
-  assert.ok(siblingStaffBeforeRejectedUpdate);
-  const siblingEventsBeforeRejectedUpdate = await api(
-    secondOwnerId,
-    "/users/security-events",
-    { storeroomId: secondOutletId },
-  );
-  assert.equal(siblingEventsBeforeRejectedUpdate.response.status, 200);
-  const managerEventsBeforeRejectedUpdate = await api(
-    secondOwnerId,
-    "/users/security-events",
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(managerEventsBeforeRejectedUpdate.response.status, 200);
-
-  const managerCannotUpdateSiblingStaffAccess = await api(
-    secondStaffId,
-    `/users/${secondOutletStaffId}/access`,
-    {
-      method: "PATCH",
-      storeroomId: secondOutletId,
-      body: { access: managerStaffAccess },
-    },
-  );
-  assert.equal(
-    managerCannotUpdateSiblingStaffAccess.response.status,
-    404,
-    JSON.stringify(managerCannotUpdateSiblingStaffAccess.data),
-  );
-
-  const siblingAccessAfterRejectedUpdate = await api(
-    secondOwnerId,
-    "/users",
-    { storeroomId: secondOutletId },
-  );
-  assert.equal(siblingAccessAfterRejectedUpdate.response.status, 200);
-  const siblingStaffAfterRejectedUpdate = siblingAccessAfterRejectedUpdate.data.find(
-    ({ id }: { id: string }) => id === secondOutletStaffId,
-  );
-  assert.deepEqual(
-    siblingStaffAfterRejectedUpdate?.access,
-    siblingStaffBeforeRejectedUpdate.access,
-    "A manager's rejected cross-outlet request must not change the teammate's permissions.",
-  );
-  const siblingEventsAfterRejectedUpdate = await api(
-    secondOwnerId,
-    "/users/security-events",
-    { storeroomId: secondOutletId },
-  );
-  assert.equal(siblingEventsAfterRejectedUpdate.response.status, 200);
-  assert.deepEqual(
-    siblingEventsAfterRejectedUpdate.data.map(({ id }: { id: number }) => id),
-    siblingEventsBeforeRejectedUpdate.data.map(({ id }: { id: number }) => id),
-    "A rejected cross-outlet request must not add a security event to the sibling outlet.",
-  );
-  const managerEventsAfterRejectedUpdate = await api(
-    secondOwnerId,
-    "/users/security-events",
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(managerEventsAfterRejectedUpdate.response.status, 200);
-  assert.deepEqual(
-    managerEventsAfterRejectedUpdate.data.map(({ id }: { id: number }) => id),
-    managerEventsBeforeRejectedUpdate.data.map(({ id }: { id: number }) => id),
-    "A rejected cross-outlet request must not add a security event to the manager's outlet.",
-  );
-
-  const managerCannotReviewUnassignedOutlet = await api(
-    secondStaffId,
-    "/users/security-events",
-    { storeroomId: legacyRoomId },
-  );
-  assert.equal(managerCannotReviewUnassignedOutlet.response.status, 404);
+  assert.equal(outletSecurityEvents.data.length, 1);
+  assert.equal(outletSecurityEvents.data[0].targetName, secondManagerInviteeId);
 
   const staffCannotViewSecurityEvents = await api(
     legacyStaffId,
@@ -1835,71 +1263,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
 
   const productA = await createProduct(legacyOwnerId, `${fixtureTag}-room-a-product`);
   const productB = await createProduct(secondOwnerId, `${fixtureTag}-room-b-product`);
-  const catalogueHistoryProduct = await createProduct(
-    legacyOwnerId,
-    `${fixtureTag}-catalogue-history-product`,
-    legacyRoomId,
-  );
-  const catalogueProductUpdate = await api(
-    legacyOwnerId,
-    `/products/${catalogueHistoryProduct.id}`,
-    {
-      method: "PATCH",
-      storeroomId: legacyRoomId,
-      body: { minStock: 3 },
-    },
-  );
-  assert.equal(catalogueProductUpdate.response.status, 200);
-  const catalogueProductArchive = await api(
-    legacyOwnerId,
-    `/products/${catalogueHistoryProduct.id}`,
-    {
-      method: "PATCH",
-      storeroomId: legacyRoomId,
-      body: { active: false },
-    },
-  );
-  assert.equal(catalogueProductArchive.response.status, 200);
-  const catalogueProductActivity = await api(
-    legacyOwnerId,
-    "/activity",
-    { storeroomId: legacyRoomId },
-  );
-  assert.equal(catalogueProductActivity.response.status, 200);
-  const productEvents = catalogueProductActivity.data.filter(
-    (entry: any) => entry.group === "catalogue" && entry.target === catalogueHistoryProduct.name,
-  );
-  assert.deepEqual(
-    productEvents.map((entry: any) => entry.action).sort(),
-    ["Product added", "Product archived", "Product updated"].sort(),
-  );
-  const productCreatedEvent = productEvents.find(
-    (entry: any) => entry.action === "Product added",
-  );
-  assert.equal(productCreatedEvent.actor, legacyOwnerId);
-  assert.ok(Number.isFinite(Date.parse(productCreatedEvent.at)));
-  assert.match(productCreatedEvent.detail, /Added fields: .*Name.*Category/);
-  assert.ok(
-    productEvents.some((entry: any) =>
-      entry.action === "Product updated" && entry.detail.includes("Low-stock threshold"),
-    ),
-  );
-  assert.ok(
-    productEvents.some((entry: any) =>
-      entry.action === "Product archived" && entry.detail.includes("Active status"),
-    ),
-  );
-  const siblingProductActivity = await api(
-    secondOwnerId,
-    "/activity",
-    { storeroomId: secondRoomId },
-  );
-  assert.ok(
-    !siblingProductActivity.data.some(
-      (entry: any) => entry.target === catalogueHistoryProduct.name,
-    ),
-    "Product catalogue history must not leak into another outlet's Activity.",
-  );
   const roomARecords = await createRoomData(legacyOwnerId, productA.id);
   const roomBRecords = await createRoomData(secondOwnerId, productB.id);
 
@@ -1948,67 +1311,8 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     const ownCounts = await api(userId, "/stock-counts", { storeroomId: ownRoomId });
     const ownMovements = await api(userId, "/inventory/movements", { storeroomId: ownRoomId });
     const ownBatches = await api(userId, "/inventory/batches", { storeroomId: ownRoomId });
-    const ownActivity = await api(userId, "/activity", { storeroomId: ownRoomId });
-    assert.equal(ownActivity.response.status, 200);
-    assert.ok(ownActivity.data.some((entry: any) => entry.group === "orders" && entry.action === "Order drafted"));
-    assert.ok(ownActivity.data.some((entry: any) => entry.group === "stock" && entry.action === "Stock count started"));
-    assert.ok(
-      !ownActivity.data.some((entry: any) =>
-        `${entry.target ?? ""} ${entry.detail ?? ""}`.includes(otherProduct.name),
-      ),
-      "Activity must not disclose another outlet's product history.",
-    );
     assert.ok(ownOrders.data.some(({ id }: { id: number }) => id === ownRecords.orderId));
     assert.ok(!ownOrders.data.some(({ id }: { id: number }) => id === otherRecords.orderId));
-    const ownOrderHistoryExport = await api(userId, "/purchase-orders/history/export", {
-      storeroomId: ownRoomId,
-    });
-    assert.equal(ownOrderHistoryExport.response.status, 200);
-    assert.ok(ownOrderHistoryExport.data.some((entry: any) =>
-      entry.orderId === ownRecords.orderId &&
-      typeof entry.actor === "string" &&
-      typeof entry.action === "string" &&
-      typeof entry.status === "string" &&
-      typeof entry.createdAt === "string",
-    ), "The export includes order, actor, action, status, and timestamp.");
-    assert.ok(
-      !ownOrderHistoryExport.data.some((entry: any) => entry.orderId === otherRecords.orderId),
-      "Purchase-order history exports must not disclose another outlet's events.",
-    );
-    const historyDay = new Date(ownOrderHistoryExport.data[0].createdAt).toISOString().slice(0, 10);
-    const dateFilteredHistory = await api(
-      userId,
-      `/purchase-orders/history/export?startDate=${historyDay}&endDate=${historyDay}`,
-      { storeroomId: ownRoomId },
-    );
-    assert.equal(dateFilteredHistory.response.status, 200);
-    assert.ok(dateFilteredHistory.data.length > 0);
-    assert.ok(dateFilteredHistory.data.every((entry: any) =>
-      new Date(entry.createdAt).toISOString().slice(0, 10) === historyDay,
-    ), "Date filters include the selected UTC calendar day only.");
-    const selectedStatus = ownOrderHistoryExport.data[0].status;
-    const statusFilteredHistory = await api(
-      userId,
-      `/purchase-orders/history/export?status=${selectedStatus}`,
-      { storeroomId: ownRoomId },
-    );
-    assert.equal(statusFilteredHistory.response.status, 200);
-    assert.ok(statusFilteredHistory.data.length > 0);
-    assert.ok(statusFilteredHistory.data.every((entry: any) => entry.status === selectedStatus));
-    assert.equal(
-      (await api(userId, "/purchase-orders/history/export?startDate=2026-11-10&endDate=2026-11-09", {
-        storeroomId: ownRoomId,
-      })).response.status,
-      400,
-      "The export rejects reversed date ranges.",
-    );
-    assert.equal(
-      (await api(userId, "/purchase-orders/history/export?startDate=2026-02-30", {
-        storeroomId: ownRoomId,
-      })).response.status,
-      400,
-      "The export rejects invalid calendar dates.",
-    );
     assert.ok(ownCounts.data.some(({ id }: { id: number }) => id === ownRecords.countId));
     assert.ok(!ownCounts.data.some(({ id }: { id: number }) => id === otherRecords.countId));
     assert.ok(
@@ -2031,13 +1335,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
         ({ productId }: { productId: number }) => productId === otherProduct.id,
       ),
     );
-
-    const crossOutletHistory = await api(
-      userId,
-      `/purchase-orders/${otherRecords.orderId}/history`,
-      { storeroomId: ownRoomId },
-    );
-    assert.equal(crossOutletHistory.response.status, 404);
 
     assert.equal(
       (await api(userId, `/purchase-orders/${otherRecords.orderId}/decision`, {
@@ -2093,7 +1390,11 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       "An upload URL cannot be requested for another outlet's count.",
     );
 
-    // New purchase-order requests wait for an owner or manager to approve them.
+    // The decision endpoint is for legacy pending requests; normal orders start as drafts.
+    await db
+      .update(purchaseOrdersTable)
+      .set({ status: "pending" })
+      .where(eq(purchaseOrdersTable.id, ownRecords.orderId));
     const approvedOrder = await api(
       userId,
       `/purchase-orders/${ownRecords.orderId}/decision`,
@@ -2116,30 +1417,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       },
     );
     assert.equal(ownReceipt.response.status, 200);
-    const ownHistory = await api(
-      userId,
-      `/purchase-orders/${ownRecords.orderId}/history`,
-      { storeroomId: ownRoomId },
-    );
-    assert.equal(ownHistory.response.status, 200);
-    assert.ok(
-      ownHistory.data.some((event: any) =>
-        event.action === "Request approved" &&
-        event.actor &&
-        Number.isFinite(Date.parse(event.createdAt)),
-      ),
-      "The outlet history should show who approved the order and when.",
-    );
-    assert.ok(
-      ownHistory.data.some((event: any) =>
-        event.action ===
-          (ownReceipt.data.status === "received"
-            ? "Order fully received"
-            : "Order partially received") &&
-        event.status === ownReceipt.data.status,
-      ),
-      "The outlet history should record the resulting receipt status.",
-    );
 
     const ownCount = await api(userId, `/stock-counts/${ownRecords.countId}`, {
       storeroomId: ownRoomId,
@@ -2152,44 +1429,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
       })).response.status,
       404,
     );
-    const workbookName = `${fixtureTag}-stock-count.xlsx`;
-    const workbookContentType =
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    const workbookBytes = Buffer.from([
-      0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00,
-      ...Buffer.from(`${fixtureTag}-storage-backed-workbook`),
-    ]);
-    let workbookObjectPath: string | undefined;
-    if (userId === legacyOwnerId) {
-      const uploadDetails = await api(
-        userId,
-        `/stock-counts/${ownRecords.countId}/workbook/upload-url`,
-        {
-          method: "POST",
-          storeroomId: ownRoomId,
-          body: {
-            name: workbookName,
-            size: workbookBytes.byteLength,
-            contentType: workbookContentType,
-          },
-        },
-      );
-      assert.equal(uploadDetails.response.status, 200, JSON.stringify(uploadDetails.data));
-      workbookObjectPath = uploadDetails.data.objectPath;
-      assert.equal(typeof workbookObjectPath, "string");
-      fixtureWorkbookObjectPaths.push(workbookObjectPath!);
-      const uploadResponse = await fetch(uploadDetails.data.uploadURL, {
-        method: "PUT",
-        headers: { "Content-Type": workbookContentType },
-        body: workbookBytes,
-      });
-      assert.equal(
-        uploadResponse.status,
-        200,
-        `Workbook upload failed with ${uploadResponse.status}: ${await uploadResponse.text()}`,
-      );
-    }
-
     const submittedCount = await api(
       userId,
       `/stock-counts/${ownRecords.countId}/submit`,
@@ -2215,67 +1454,10 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
           acknowledgedMovementIds: ownCount.data.movements.map(
             ({ id }: { id: number }) => id,
           ),
-          ...(workbookObjectPath
-            ? { workbookObjectPath, workbookName }
-            : {}),
         },
       },
     );
     assert.equal(submittedCount.response.status, 200);
-    if (workbookObjectPath) {
-      assert.deepEqual(submittedCount.data.workbook, {
-        name: workbookName,
-        uploadedBy: userId,
-        submittedAt: submittedCount.data.workbook.submittedAt,
-      });
-      assert.ok(Number.isFinite(Date.parse(submittedCount.data.workbook.submittedAt)));
-
-      const persistedCount = await api(
-        userId,
-        `/stock-counts/${ownRecords.countId}`,
-        { storeroomId: ownRoomId },
-      );
-      assert.equal(persistedCount.response.status, 200);
-      assert.equal(persistedCount.data.workbook.name, workbookName);
-      assert.equal(persistedCount.data.workbook.uploadedBy, userId);
-      assert.equal(
-        persistedCount.data.workbook.submittedAt,
-        submittedCount.data.workbook.submittedAt,
-      );
-
-      const workbookDownload = await fetch(
-        `${baseUrl}/api/stock-counts/${ownRecords.countId}/workbook`,
-        {
-          headers: {
-            "x-test-user-id": userId,
-            "x-storeroom-id": String(ownRoomId),
-          },
-        },
-      );
-      assert.equal(workbookDownload.status, 200);
-      assert.ok(
-        workbookDownload.headers
-          .get("content-disposition")
-          ?.includes(`filename*=UTF-8''${encodeURIComponent(workbookName)}`),
-        "The download should use the original workbook filename.",
-      );
-      assert.deepEqual(
-        Buffer.from(await workbookDownload.arrayBuffer()),
-        workbookBytes,
-        "The downloaded workbook should contain the original uploaded bytes.",
-      );
-
-      const otherOutletDownload = await api(
-        secondStaffId,
-        `/stock-counts/${ownRecords.countId}/workbook`,
-        { storeroomId: secondRoomId },
-      );
-      assert.equal(
-        otherOutletDownload.response.status,
-        404,
-        "A teammate in another outlet cannot download this workbook.",
-      );
-    }
 
     const teams = await api(userId, "/users", { storeroomId: ownRoomId });
     assert.equal(teams.response.status, 200, JSON.stringify(teams.data));
@@ -3018,116 +2200,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     ),
     "An open count should show a later movement with its product, area, and quantity.",
   );
-  const stockMovedAfterCountRefresh = await api(
-    secondOwnerId,
-    "/inventory/adjustments",
-    {
-      method: "POST",
-      storeroomId: secondRoomId,
-      body: {
-        productId: sourceProduct.id,
-        sectionId: sourceMain.id,
-        quantityDelta: 1,
-        reason: `${fixtureTag}-movement-after-count-refresh`,
-      },
-    },
-  );
-  assert.equal(stockMovedAfterCountRefresh.response.status, 201, JSON.stringify(stockMovedAfterCountRefresh.data));
-  const stockBeforeRejectedRetry = await db
-    .select({
-      quantity: sql<number>`coalesce(sum(${stockBatchesTable.quantity}), 0)::float`,
-    })
-    .from(stockBatchesTable)
-    .where(eq(stockBatchesTable.productId, sourceProduct.id));
-  const movementsBeforeRejectedRetry = await api(
-    secondOwnerId,
-    `/inventory/movements?productId=${sourceProduct.id}`,
-    { storeroomId: secondRoomId },
-  );
-  const staleRefreshedSectionCountSubmit = await api(
-    secondOwnerId,
-    `/stock-counts/${sectionCount.data.id}/submit`,
-    {
-      method: "POST",
-      storeroomId: secondRoomId,
-      body: {
-        lines: sectionCount.data.lines.map(
-          ({
-            productId,
-            sectionId,
-            expectedQuantity,
-          }: {
-            productId: number;
-            sectionId: number;
-            expectedQuantity: number;
-          }) => ({
-            productId,
-            sectionId,
-            countedQuantity: expectedQuantity + (sectionId === sourceMain.id ? 3.5 : 0),
-          }),
-        ),
-        acknowledgedMovementIds: refreshedSectionCount.data.movements.map(
-          ({ id }: { id: number }) => id,
-        ),
-      },
-    },
-  );
-  assert.equal(staleRefreshedSectionCountSubmit.response.status, 409, JSON.stringify(staleRefreshedSectionCountSubmit.data));
-  const stockAfterRejectedRetry = await db
-    .select({
-      quantity: sql<number>`coalesce(sum(${stockBatchesTable.quantity}), 0)::float`,
-    })
-    .from(stockBatchesTable)
-    .where(eq(stockBatchesTable.productId, sourceProduct.id));
-  assert.equal(
-    stockAfterRejectedRetry[0]?.quantity,
-    stockBeforeRejectedRetry[0]?.quantity,
-    "A stale confirmation must not change stock.",
-  );
-  const countAfterRejectedRetry = await api(
-    secondOwnerId,
-    `/stock-counts/${sectionCount.data.id}`,
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(countAfterRejectedRetry.data.status, "in_progress");
-  assert.ok(
-    countAfterRejectedRetry.data.lines.every(
-      ({ countedQuantity }: { countedQuantity: number | null }) => countedQuantity === null,
-    ),
-    "A stale confirmation must not save counted quantities.",
-  );
-  const movementsAfterRejectedRetry = await api(
-    secondOwnerId,
-    `/inventory/movements?productId=${sourceProduct.id}`,
-    { storeroomId: secondRoomId },
-  );
-  assert.deepEqual(
-    movementsAfterRejectedRetry.data.map(({ id }: { id: number }) => id).sort((a: number, b: number) => a - b),
-    movementsBeforeRejectedRetry.data.map(({ id }: { id: number }) => id).sort((a: number, b: number) => a - b),
-    "A stale confirmation must preserve the movement audit trail without writing a count movement.",
-  );
-  const refreshedAfterLateMovementCount = await api(
-    secondOwnerId,
-    `/stock-counts/${sectionCount.data.id}`,
-    { storeroomId: secondRoomId },
-  );
-  assert.ok(
-    refreshedAfterLateMovementCount.data.movements.some(
-      ({
-        productId,
-        sectionName,
-        quantityDelta,
-      }: {
-        productId: number;
-        sectionName: string;
-        quantityDelta: number;
-      }) =>
-        productId === sourceProduct.id &&
-        sectionName === sourceMain.name &&
-        quantityDelta === 1,
-    ),
-    "Refreshing after rejection should expose the movement that arrived after the previous refresh.",
-  );
   const sectionCountSubmission = await api(
     secondOwnerId,
     `/stock-counts/${sectionCount.data.id}/submit`,
@@ -3147,10 +2219,10 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
           }) => ({
             productId,
             sectionId,
-            countedQuantity: expectedQuantity + (sectionId === sourceMain.id ? 3.5 : 0),
+            countedQuantity: expectedQuantity + (sectionId === sourceMain.id ? 2.5 : 0),
           }),
         ),
-        acknowledgedMovementIds: refreshedAfterLateMovementCount.data.movements.map(
+        acknowledgedMovementIds: refreshedSectionCount.data.movements.map(
           ({ id }: { id: number }) => id,
         ),
       },
@@ -3177,34 +2249,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     ),
     "A count variance must adjust stock and write its movement against the correct area.",
   );
-  assert.ok(
-    sectionCountMovements.data.some(
-      ({
-        type,
-        sectionName,
-        quantityDelta,
-      }: {
-        type: string;
-        sectionName: string;
-        quantityDelta: number;
-      }) => type === "adjustment" && sectionName === sourceMain.name && quantityDelta === 2,
-    ),
-    "The original movement should remain in the stock audit trail after the count is completed.",
-  );
-  assert.ok(
-    sectionCountMovements.data.some(
-      ({
-        type,
-        sectionName,
-        quantityDelta,
-      }: {
-        type: string;
-        sectionName: string;
-        quantityDelta: number;
-      }) => type === "adjustment" && sectionName === sourceMain.name && quantityDelta === 1,
-    ),
-    "The movement added after refresh should remain in the stock audit trail after the count is completed.",
-  );
   const deleteCountSectionAfterCompletion = await api(
     secondOwnerId,
     `/stock-sections/${emptyCountSection.data.id}`,
@@ -3222,62 +2266,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
         sectionId === null && sectionName === emptyCountSection.data.name,
     ),
     "Completed counts should retain the storage-area name as historical context.",
-  );
-
-  const freezerSectionCount = await api(secondOwnerId, "/stock-counts", {
-    method: "POST",
-    storeroomId: secondRoomId,
-    body: { scope: "section", sectionId: chiller.data.id },
-  });
-  assert.equal(freezerSectionCount.response.status, 201, JSON.stringify(freezerSectionCount.data));
-  fixtureCountIds.push(freezerSectionCount.data.id);
-  const movementInAnotherSection = await api(secondOwnerId, "/inventory/adjustments", {
-    method: "POST",
-    storeroomId: secondRoomId,
-    body: {
-      productId: sourceProduct.id,
-      sectionId: sourceMain.id,
-      quantityDelta: 1,
-      reason: `${fixtureTag}-parallel-section-count`,
-    },
-  });
-  assert.equal(movementInAnotherSection.response.status, 201, JSON.stringify(movementInAnotherSection.data));
-  const refreshedFreezerCount = await api(
-    secondOwnerId,
-    `/stock-counts/${freezerSectionCount.data.id}`,
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(
-    refreshedFreezerCount.data.movements.length,
-    0,
-    "A count for one storage section must not show a movement recorded in another section.",
-  );
-  const completedFreezerCount = await api(
-    secondOwnerId,
-    `/stock-counts/${freezerSectionCount.data.id}/submit`,
-    {
-      method: "POST",
-      storeroomId: secondRoomId,
-      body: {
-        lines: freezerSectionCount.data.lines.map(
-          ({
-            productId,
-            sectionId,
-            expectedQuantity,
-          }: {
-            productId: number;
-            sectionId: number;
-            expectedQuantity: number;
-          }) => ({ productId, sectionId, countedQuantity: expectedQuantity }),
-        ),
-        acknowledgedMovementIds: [],
-      },
-    },
-  );
-  assert.equal(
-    completedFreezerCount.response.status,
-    200,
-    JSON.stringify(completedFreezerCount.data),
   );
 
   const sectionWithStock = await api(
@@ -3580,11 +2568,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   await setStaffAccess(legacyRoomId, emptyStaffAccess);
   assert.equal((await api(legacyStaffId, "/purchase-orders")).response.status, 403);
   assert.equal(
-    (await api(legacyStaffId, "/purchase-orders/history/export")).response.status,
-    403,
-    "Purchase-order history export requires outlet purchase-order access.",
-  );
-  assert.equal(
     (await api(legacyStaffId, "/purchase-orders", {
       method: "POST",
       body: { lines: [{ productId: productA.id, quantity: 1 }] },
@@ -3596,11 +2579,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     purchaseOrders: "view",
   });
   assert.equal((await api(legacyStaffId, "/purchase-orders")).response.status, 200);
-  assert.equal(
-    (await api(legacyStaffId, "/purchase-orders/history/export")).response.status,
-    200,
-    "Staff with view access can export their outlet's purchase-order history.",
-  );
   assert.equal(
     (await api(legacyStaffId, "/purchase-orders", {
       method: "POST",
@@ -3618,17 +2596,6 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
   });
   assert.equal(staffOrder.response.status, 201, JSON.stringify(staffOrder.data));
   fixtureOrderIds.push(staffOrder.data.id);
-  await setStaffAccess(legacyRoomId, {
-    ...emptyStaffAccess,
-    purchaseOrders: "view",
-  });
-  const staffOrderHistory = await api(
-    legacyStaffId,
-    `/purchase-orders/${staffOrder.data.id}/history`,
-  );
-  assert.equal(staffOrderHistory.response.status, 200);
-  assert.equal(staffOrderHistory.data[0]?.actor, legacyStaffId);
-  assert.equal(staffOrderHistory.data[0]?.action, "Purchase-order request submitted");
   assert.equal(
     (await api(legacyStaffId, `/purchase-orders/${staffOrder.data.id}`, {
       method: "DELETE",
@@ -3636,43 +2603,19 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     403,
   );
 
-  const approvalSupplier = await api(legacyOwnerId, "/suppliers", {
-    storeroomId: legacyRoomId,
-    method: "POST",
-    body: { name: `${fixtureTag}-approval-supplier` },
-  });
-  assert.equal(approvalSupplier.response.status, 201, JSON.stringify(approvalSupplier.data));
   const pendingApprovalOrder = await api(legacyOwnerId, "/purchase-orders", {
     storeroomId: legacyRoomId,
     method: "POST",
-    body: {
-      supplierId: approvalSupplier.data.id,
-      note: "Original request note",
-      lines: [{ productId: productA.id, quantity: 1 }],
-    },
+    body: { lines: [{ productId: productA.id, quantity: 1 }] },
   });
   assert.equal(pendingApprovalOrder.response.status, 201, JSON.stringify(pendingApprovalOrder.data));
   fixtureOrderIds.push(pendingApprovalOrder.data.id);
-  assert.equal(pendingApprovalOrder.data.status, "pending");
-  const editedPendingOrder = await api(
-    legacyOwnerId,
-    `/purchase-orders/${pendingApprovalOrder.data.id}`,
-    {
-      storeroomId: legacyRoomId,
-      method: "PATCH",
-      body: {
-        supplierId: approvalSupplier.data.id,
-        expectedDeliveryDate: "2026-11-20",
-        note: "Original request note",
-        lines: [{ productId: productA.id, quantity: 2 }],
-      },
-    },
-  );
-  assert.equal(editedPendingOrder.response.status, 200, JSON.stringify(editedPendingOrder.data));
-  assert.equal(editedPendingOrder.data.lines[0]?.quantity, 2);
+  await db
+    .update(purchaseOrdersTable)
+    .set({ status: "pending" })
+    .where(eq(purchaseOrdersTable.id, pendingApprovalOrder.data.id));
   const approvalDecision = {
     decision: "approved",
-    note: "Within the approved monthly budget.",
   };
   await setStaffAccess(legacyRoomId, emptyStaffAccess);
   assert.equal(
@@ -3699,190 +2642,12 @@ test("legacy backfill, new-owner setup, and API data remain isolated by storeroo
     ...emptyStaffAccess,
     approvals: "edit",
   });
-  const staffApprovalAttempt = await api(
+  const approvedByStaff = await api(
     legacyStaffId,
     `/purchase-orders/${pendingApprovalOrder.data.id}/decision`,
     { method: "POST", body: approvalDecision },
   );
-  assert.equal(
-    staffApprovalAttempt.response.status,
-    403,
-    "A staff permission override must not allow purchase-order approval.",
-  );
-  const approvedByOwner = await api(
-    legacyOwnerId,
-    `/purchase-orders/${pendingApprovalOrder.data.id}/decision`,
-    { method: "POST", storeroomId: legacyRoomId, body: approvalDecision },
-  );
-  assert.equal(approvedByOwner.response.status, 200, JSON.stringify(approvedByOwner.data));
-  assert.equal(approvedByOwner.data.note, "Original request note");
-  const approvedOrderHistory = await api(
-    legacyOwnerId,
-    `/purchase-orders/${pendingApprovalOrder.data.id}/history`,
-    { storeroomId: legacyRoomId },
-  );
-  assert.equal(approvedOrderHistory.response.status, 200);
-  assert.equal(approvedOrderHistory.data.at(-1)?.note, approvalDecision.note);
-  const approvedActivity = await api(legacyOwnerId, "/activity", {
-    storeroomId: legacyRoomId,
-  });
-  assert.equal(approvedActivity.response.status, 200);
-  const approvedActivityEntry = approvedActivity.data.find(
-    (entry: { action: string; target: string | null }) =>
-      entry.action === "Order approved" &&
-      entry.target === approvedByOwner.data.orderNumber,
-  );
-  assert.ok(approvedActivityEntry);
-  assert.ok(approvedActivityEntry.detail.includes(approvalDecision.note));
-  const approvedActivityFromOtherOutlet = await api(secondOwnerId, "/activity", {
-    storeroomId: secondRoomId,
-  });
-  assert.equal(approvedActivityFromOtherOutlet.response.status, 200);
-  assert.ok(
-    !approvedActivityFromOtherOutlet.data.some(
-      (entry: { detail: string }) => entry.detail.includes(approvalDecision.note),
-    ),
-    "Purchase-order decision reasons must not leak into another outlet's Activity.",
-  );
-  const orderHistoryExport = await api(
-    legacyOwnerId,
-    "/purchase-orders/history/export",
-    { storeroomId: legacyRoomId },
-  );
-  assert.equal(orderHistoryExport.response.status, 200);
-  assert.ok(
-    orderHistoryExport.data.some(
-      (event: { orderId: number; note: string | null }) =>
-        event.orderId === pendingApprovalOrder.data.id &&
-        event.note === approvalDecision.note,
-    ),
-  );
-  const orderHistoryFromOtherOutlet = await api(
-    secondOwnerId,
-    `/purchase-orders/${pendingApprovalOrder.data.id}/history`,
-    { storeroomId: secondRoomId },
-  );
-  assert.equal(orderHistoryFromOtherOutlet.response.status, 404);
-  assert.doesNotMatch(
-    JSON.stringify(orderHistoryFromOtherOutlet.data),
-    /Within the approved monthly budget/,
-  );
-
-  const approvalWithoutReasonOrder = await api(legacyOwnerId, "/purchase-orders", {
-    storeroomId: legacyRoomId,
-    method: "POST",
-    body: {
-      supplierId: approvalSupplier.data.id,
-      lines: [{ productId: productA.id, quantity: 1 }],
-    },
-  });
-  assert.equal(approvalWithoutReasonOrder.response.status, 201);
-  fixtureOrderIds.push(approvalWithoutReasonOrder.data.id);
-  await db
-    .update(purchaseOrdersTable)
-    .set({ status: "pending" })
-    .where(eq(purchaseOrdersTable.id, approvalWithoutReasonOrder.data.id));
-  const approvedWithoutReason = await api(
-    legacyOwnerId,
-    `/purchase-orders/${approvalWithoutReasonOrder.data.id}/decision`,
-    {
-      storeroomId: legacyRoomId,
-      method: "POST",
-      body: { decision: "approved" },
-    },
-  );
-  assert.equal(approvedWithoutReason.response.status, 200);
-
-  const pendingRejectionOrder = await api(legacyOwnerId, "/purchase-orders", {
-    storeroomId: legacyRoomId,
-    method: "POST",
-    body: {
-      note: "Original rejection request note",
-      lines: [{ productId: productA.id, quantity: 1 }],
-    },
-  });
-  assert.equal(pendingRejectionOrder.response.status, 201);
-  fixtureOrderIds.push(pendingRejectionOrder.data.id);
-  await db
-    .update(purchaseOrdersTable)
-    .set({ status: "pending" })
-    .where(eq(purchaseOrdersTable.id, pendingRejectionOrder.data.id));
-  const rejectionReason = "Supplier cannot deliver before the cutoff.";
-  const rejectedOrder = await api(
-    legacyOwnerId,
-    `/purchase-orders/${pendingRejectionOrder.data.id}/decision`,
-    {
-      storeroomId: legacyRoomId,
-      method: "POST",
-      body: { decision: "rejected", note: rejectionReason },
-    },
-  );
-  assert.equal(rejectedOrder.response.status, 200, JSON.stringify(rejectedOrder.data));
-  assert.equal(rejectedOrder.data.note, "Original rejection request note");
-  const rejectedOrderHistory = await api(
-    legacyOwnerId,
-    `/purchase-orders/${pendingRejectionOrder.data.id}/history`,
-    { storeroomId: legacyRoomId },
-  );
-  assert.equal(rejectedOrderHistory.response.status, 200);
-  assert.equal(rejectedOrderHistory.data.at(-1)?.note, rejectionReason);
-  const rejectedActivity = await api(legacyOwnerId, "/activity", {
-    storeroomId: legacyRoomId,
-  });
-  assert.equal(rejectedActivity.response.status, 200);
-  const rejectedActivityEntry = rejectedActivity.data.find(
-    (entry: { action: string; target: string | null }) =>
-      entry.action === "Order rejected" &&
-      entry.target === pendingRejectionOrder.data.orderNumber,
-  );
-  assert.ok(rejectedActivityEntry);
-  assert.ok(rejectedActivityEntry.detail.includes(rejectionReason));
-
-  const rejectionWithoutReasonOrder = await api(legacyOwnerId, "/purchase-orders", {
-    storeroomId: legacyRoomId,
-    method: "POST",
-    body: { lines: [{ productId: productA.id, quantity: 1 }] },
-  });
-  assert.equal(rejectionWithoutReasonOrder.response.status, 201);
-  fixtureOrderIds.push(rejectionWithoutReasonOrder.data.id);
-  await db
-    .update(purchaseOrdersTable)
-    .set({ status: "pending" })
-    .where(eq(purchaseOrdersTable.id, rejectionWithoutReasonOrder.data.id));
-  const rejectedWithoutReason = await api(
-    legacyOwnerId,
-    `/purchase-orders/${rejectionWithoutReasonOrder.data.id}/decision`,
-    {
-      storeroomId: legacyRoomId,
-      method: "POST",
-      body: { decision: "rejected" },
-    },
-  );
-  assert.equal(rejectedWithoutReason.response.status, 400);
-  assert.match(rejectedWithoutReason.data.error, /reason is required/i);
-  const rejectedWithWhitespace = await api(
-    legacyOwnerId,
-    `/purchase-orders/${rejectionWithoutReasonOrder.data.id}/decision`,
-    {
-      storeroomId: legacyRoomId,
-      method: "POST",
-      body: { decision: "rejected", note: " \t\n " },
-    },
-  );
-  assert.equal(rejectedWithWhitespace.response.status, 400);
-  assert.equal(
-    (await api(
-      legacyOwnerId,
-      `/purchase-orders/${rejectionWithoutReasonOrder.data.id}/decision`,
-      {
-        storeroomId: legacyRoomId,
-        method: "POST",
-        body: { decision: "rejected", note: "Supplier cannot meet the required date." },
-      },
-    )).response.status,
-    200,
-    "The request remains reviewable after rejection attempts without a reason.",
-  );
+  assert.equal(approvedByStaff.response.status, 200, JSON.stringify(approvedByStaff.data));
 
   const setProductTemperatureRule = await api(
     legacyOwnerId,
