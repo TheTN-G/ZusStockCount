@@ -312,8 +312,8 @@ function ContentShell({ children, title }: { children: ReactNode; title?: string
       setLocation('/sign-in');
     }
   }
-  return <div className="min-h-[100dvh] bg-background lg:flex">
-    <aside className="hidden w-[252px] shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground lg:sticky lg:top-0 lg:flex lg:h-[100dvh]">
+  return <div className="min-h-[100dvh] bg-background lg:flex lg:pl-[252px]">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[252px] shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground lg:flex lg:h-[100dvh]">
       <div className="px-6 pb-5 pt-6"><Brand/></div>
       <div className="relative mx-4 mb-4">
         <button
